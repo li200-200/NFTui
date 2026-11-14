@@ -1,5 +1,21 @@
 # 改 UI 速查手册
 
+> ## ⚠️ 本文档已过期，请看 [CHANGE_GUIDE.md](CHANGE_GUIDE.md)
+>
+> 保留它只是为了留个历史记录。具体过期的地方：
+>
+> | 本文档写的 | 现在的实际情况 |
+> |---|---|
+> | 各处行号 | 全部漂移（`main_page.dart` 已从 690 行长到 1130 行） |
+> | `CheckBoxRow` 做设置项 | 设置页已全部换成 `SwitchRow` |
+> | 单一 `kDrawerWidth = 360` | 已拆成三档：设置 360 / 个人中心 260 / 菜单 200 |
+> | `_buildDrawer()` | 现在叫 `_buildDrawerBody(NavDestination)` |
+> | 设置页只有三个分组 | 现在五个：小号区 / 滑块区 / 上号器区 / 代理区 / 通知区 |
+> | 没有 objectName 的概念 | 现在所有控件挂 `ValueKey(objectName)`，见 `lib/widgets/object_names.dart` |
+> | `_account` / `_password` 等字段名 | 已改成 `_lineEditZh` / `_lineEditMm` 等（跟 .ui 的 objectName 对齐） |
+>
+> 新文档的锚点全部是**可搜索的内容**而非行号，不会再这样整体失效。
+
 给不熟悉 Flutter 的人用。**改界面看第一节，改颜色看第二节，报错看第三节。**
 
 改完永远跑这两条：
