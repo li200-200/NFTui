@@ -1,0 +1,29 @@
+name: app_ui
+description: "工作台界面：把 untitled.ui（QMainWindow）1:1 翻译成 Flutter 桌面端 UI"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 输入框右键菜单（复制 / 剪切 / 粘贴 / 全选）的中文文案由 MaterialLocalizations
+  # 提供，词条就在这个包里：引入它并把 locale 设成 zh，菜单自动是中文，
+  # 不需要自己写任何文案。
+  flutter_localizations:
+    sdk: flutter
+
+  # 自绘标题条上的「最小化 / 关闭」需要它 —— 原生层已经隐藏了系统标题栏，
+  # 这两个动作没有别的来源。
+  window_manager: ^0.5.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

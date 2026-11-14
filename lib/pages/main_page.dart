@@ -1,0 +1,1049 @@
+// ---------------------------------------------------------------------------
+// 工作台主页面：标题条 + 左栏三张卡片 + 右侧标签条与三张表
+//
+// 这一层是「页面骨架 + 状态持有者」：
+//   · 所有 TextEditingController / 下拉选中值 / Tab 下标 / 每张表的选中行集合
+//     都在这里创建与释放，子组件一律无状态、只画 + 转发回调；
+//   · 业务动作（登录 / 发送 / 查询 / 加入修改）一律留空实现 —— 本任务是纯界面
+//     还原，回调里没有任何网络、文件或 FFI 调用；
+//   · 表格右键菜单的「全选 / 反选 / 删除选中 / 删除成功」操作的是本地占位数据，
+//     属于界面行为，不是业务逻辑（没有请求、没有落盘）。
+//
+// 【列宽为什么不会被这里的 setState 冲掉】
+// 三张表各自把列宽存在自己的 State 里（见 task_table.dart 的说明）。本页面每次
+// 重建只重传 columns / rows / selected，表格内部的宽度状态不受影响 ——
+// 拖好列宽之后点任意按钮、切任意 Tab，宽度都保持原样。
+// ---------------------------------------------------------------------------
+import 'package:flutter/material.dart';
+
+import 'package:app_ui/models.dart';
+import 'package:app_ui/theme.dart';
+import 'package:app_ui/widgets/drawer_panels.dart';
+import 'package:app_ui/widgets/flat_tab_bar.dart';
+import 'package:app_ui/widgets/nav_bar.dart';
+import 'package:app_ui/widgets/panel_controls.dart';
+import 'package:app_ui/widgets/panel_group_box.dart';
+import 'package:app_ui/widgets/task_table.dart';
+import 'package:app_ui/widgets/work_snack.dart';
+import 'package:app_ui/widgets/work_title_bar.dart';
+
+class MainPage extends StatefulWidget {
+  const MainPage({super.key});
+
+  @override
+  State<MainPage> createState() => _MainPageState();
+}
+
+class _MainPageState extends State<MainPage> {
+  // ---- 输入框控制器（本类持有 → 本类负责 dispose）----
+  final TextEditingController _account = TextEditingController();
+  final TextEditingController _password = TextEditingController();
+  final TextEditingController _payPassword = TextEditingController();
+  final TextEditingController _collection = TextEditingController();
+  final TextEditingController _collectionId = TextEditingController();
+  // .ui 里这两个输入框的 text 分别是 "1" / "100"，原样作为默认值。
+  final TextEditingController _quantity = TextEditingController(text: '1');
+  final TextEditingController _price = TextEditingController(text: '100');
+
+  /// 信息区里那个 placeholder 为 `key` 的输入框（.ui 的 lineEdit_cpxx_2）。
+  ///
+  /// 它在 .ui 里是 `enabled = false` 的：没有登录时没有可填的 key。这里按同样的
+  /// 语义做成禁用态，登录成功后才由业务层打开（本任务不接业务，保持禁用）。
+  final TextEditingController _cardKey = TextEditingController();
+
+  /// 操作区的「并发」输入框（.ui 的 lineEdit_bf），默认值 "1"。
+  final TextEditingController _concurrency = TextEditingController(text: '1');
+
+  // ---- 下拉选中值 ----
+  /// 信息区顶部那个 QComboBox 在 .ui 里没有 item，只有 currentText 为空。
+  /// 保留成「空列表 + 提示」，等真正接上数据源时往里塞候选即可。
+  String? _selectedAccount;
+  static const List<String> _accountItems = <String>[];
+
+  static const List<String> _functionItems = <String>['默认模式', '一键下单'];
+  static const List<String> _methodItems = <String>['锁单', '提取支付链接', '余额支付'];
+  static const List<String> _payItems = <String>[
+    '易宝自动支付',
+    '汇付自动支付',
+    '连连自动支付',
+    '衫德自动支付',
+  ];
+
+  /// 默认选中项取自 .ui 的 currentText，不能改成别的。
+  String? _function = '默认模式';
+  String? _method = '锁单';
+  String? _pay = '易宝自动支付';
+
+  /// 「运行中」开关。.ui 里没有这个状态位，但「操作」卡片上的「开始 / 结束」
+  /// 两个按钮需要它来驱动：开始之后表格整表只读（TaskTable.enabled = false），
+  /// 结束之后恢复可编辑。这一位纯粹是界面状态，不涉及任何业务调用。
+  bool _running = false;
+
+  // ---- 底部图标条与右侧抽屉 ----
+  /// 当前抽屉对应哪一项；null = 抽屉关着。
+  ///
+  /// 用「哪一项」而不是「开 / 关 + 是哪一项」两个字段：抽屉必然同时有且只有一个
+  /// 归属，拆成两个字段就一定会有「开着但不知道是哪一项」的中间态。
+  NavDestination? _drawer;
+
+  /// 抽屉里三个开关的状态。同样只是界面状态，不落盘。
+  bool _autoStart = false;
+  bool _autoRetry = true;
+  bool _notify = true;
+
+  // ---- Tab 与三张表 ----
+  static const List<String> _tabTitles = <String>['运行', '订单信息', '完成'];
+  int _tabIndex = 0;
+
+  /// 三张表各自的行与选中集合。
+  ///
+  /// 分成三份而不是共用一份：三张表的内容本来就不同（运行中的账号 / 已下单 /
+  /// 已完成），选中集合也必须分开 —— 否则在「运行」里勾中的下标跑到「完成」里
+  /// 会选中另一行。
+  List<TaskRow> _runRows = List<TaskRow>.of(kDemoRunRows);
+  List<TaskRow> _orderRows = List<TaskRow>.of(kDemoOrderRows);
+  List<TaskRow> _doneRows = List<TaskRow>.of(kDemoDoneRows);
+
+  final Set<int> _runSelected = <int>{};
+  final Set<int> _orderSelected = <int>{};
+  final Set<int> _doneSelected = <int>{};
+
+  @override
+  void initState() {
+    super.initState();
+    /* 抽屉里的「并发数」回显读的是 _concurrency.text。
+     *
+     * 【为什么必须手动监听】
+     * TextField 打字只通知它自己的 EditableText，不会触发页面 setState ——
+     * 所以 _buildDrawer() 不会重跑，抽屉里那个只读回显会一直停在打开抽屉那一刻
+     * 的值。实测：抽屉开着时把并发改成 42，回显仍然是 "1"。
+     *
+     * 这里挂一个监听，只在「抽屉正开着设置面板」时才 setState —— 抽屉没开时
+     * 每次按键都重建整页（含三张表）是纯粹的浪费。 */
+    _concurrency.addListener(_onConcurrencyChanged);
+    // 个人中心的头像首字母与「已登录 / 未登录」也读 _account.text，同一个坑。
+    _account.addListener(_onAccountChanged);
+  }
+
+  void _onConcurrencyChanged() {
+    if (_drawer == NavDestination.settings && mounted) {
+      setState(() {});
+    }
+  }
+
+  void _onAccountChanged() {
+    if (_drawer == NavDestination.profile && mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    // 先摘监听再释放：dispose 期间 controller 还会发一次通知，
+    // 那时如果回调还在，就会对已 unmount 的 State 调 setState。
+    _concurrency.removeListener(_onConcurrencyChanged);
+    _account.removeListener(_onAccountChanged);
+    _account.dispose();
+    _password.dispose();
+    _payPassword.dispose();
+    _collection.dispose();
+    _collectionId.dispose();
+    _quantity.dispose();
+    _price.dispose();
+    _cardKey.dispose();
+    _concurrency.dispose();
+    super.dispose();
+  }
+
+  void _snack(String message) => showWorkSnack(context, message);
+
+  // -------------------------------------------------------------------------
+  // 表格的选中 / 删除动作
+  //
+  // 只操作本页持有的三份行列表。真实接入时这些动作要改成调用数据源，
+  // 但表格组件本身不用动 —— 它只负责把菜单项翻译成回调。
+  // -------------------------------------------------------------------------
+
+  /// 取某个 Tab 对应的行列表。
+  ///
+  /// 三个分支都写全（而不是 `_ =>` 兜底）：将来加第四个 Tab 时编译器会在这里
+  /// 报错，不会静默落到「完成」表上。
+  List<TaskRow> _rowsOf(int tabIndex) => switch (tabIndex) {
+    0 => _runRows,
+    1 => _orderRows,
+    _ => _doneRows,
+  };
+
+  /// 取某个 Tab 对应的选中下标集合。
+  Set<int> _selectedOf(int tabIndex) => switch (tabIndex) {
+    0 => _runSelected,
+    1 => _orderSelected,
+    _ => _doneSelected,
+  };
+
+  /// 写入行集合并重新编号（**显示序号**从 1 连续），同时清掉越界的选中下标。
+  ///
+  /// 重新编号只改序号，状态 / 详情原样保留（由 copyWith 保证）—— 否则任何一次
+  /// 删除都会把整张表的状态列打回默认值。
+  void _setRows(int tabIndex, List<TaskRow> next) {
+    final List<TaskRow> numbered = <TaskRow>[
+      for (int i = 0; i < next.length; i++) next[i].copyWith(no: i + 1),
+    ];
+    setState(() {
+      switch (tabIndex) {
+        case 0:
+          _runRows = numbered;
+          _runSelected.removeWhere((int i) => i >= numbered.length);
+        case 1:
+          _orderRows = numbered;
+          _orderSelected.removeWhere((int i) => i >= numbered.length);
+        default:
+          _doneRows = numbered;
+          _doneSelected.removeWhere((int i) => i >= numbered.length);
+      }
+    });
+  }
+
+  void _toggleSelection(Set<int> selected, int index) {
+    setState(() {
+      if (selected.contains(index)) {
+        selected.remove(index);
+      } else {
+        selected.add(index);
+      }
+    });
+  }
+
+  void _selectAll(int tabIndex) {
+    final List<TaskRow> rows = _rowsOf(tabIndex);
+    final Set<int> selected = _selectedOf(tabIndex);
+    if (rows.isEmpty) {
+      _snack('当前表格没有数据');
+      return;
+    }
+    setState(() {
+      selected
+        ..clear()
+        ..addAll(<int>[for (int i = 0; i < rows.length; i++) i]);
+    });
+    _snack('已全选 ${rows.length} 行');
+  }
+
+  void _invertSelection(int tabIndex) {
+    final List<TaskRow> rows = _rowsOf(tabIndex);
+    final Set<int> selected = _selectedOf(tabIndex);
+    if (rows.isEmpty) {
+      _snack('当前表格没有数据');
+      return;
+    }
+    setState(() {
+      final Set<int> next = <int>{
+        for (int i = 0; i < rows.length; i++)
+          if (!selected.contains(i)) i,
+      };
+      selected
+        ..clear()
+        ..addAll(next);
+    });
+    _snack('已反选，当前选中 ${selected.length} 行');
+  }
+
+  void _deleteSelected(int tabIndex) {
+    final List<TaskRow> rows = _rowsOf(tabIndex);
+    final Set<int> selected = _selectedOf(tabIndex);
+    if (selected.isEmpty) {
+      _snack('没有选中任何行');
+      return;
+    }
+    final int removed = selected.length;
+    final List<TaskRow> next = <TaskRow>[
+      for (int i = 0; i < rows.length; i++)
+        if (!selected.contains(i)) rows[i],
+    ];
+    setState(selected.clear);
+    _setRows(tabIndex, next);
+    _snack('已删除 $removed 行');
+  }
+
+  /// 「删除成功」：一次清掉所有状态为「成功」的行。
+  ///
+  /// 与「删除选中」分开成两项而不是合成一个带确认框的项，理由：两者选中的依据
+  /// 完全不同 —— 前者靠用户勾选（下标集合），后者靠行的状态；混在一起用户没法
+  /// 只删其中一类。这一项是「清理已完成的行」，跑完一轮之后最常用的动作。
+  void _deleteSucceeded(int tabIndex) {
+    final List<TaskRow> rows = _rowsOf(tabIndex);
+    final List<TaskRow> next = <TaskRow>[
+      for (final TaskRow r in rows)
+        if (r.status != TaskStatus.succeeded) r,
+    ];
+    final int removed = rows.length - next.length;
+    if (removed == 0) {
+      _snack('没有状态为「成功」的行');
+      return;
+    }
+    _selectedOf(tabIndex).clear();
+    _setRows(tabIndex, next);
+    _snack('已删除 $removed 行成功记录');
+  }
+
+  // -------------------------------------------------------------------------
+  // 布局
+  // -------------------------------------------------------------------------
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      // 没有 AppBar、没有原生菜单栏：标题条是自绘的 WorkTitleBar。
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          const WorkTitleBar(),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(kPanelPadding),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  // 左栏固定 220：其中 8 留给滚动条，卡片可见宽仍是 212。
+                  SizedBox(width: kPanelWidth, child: _buildLeftPanel()),
+                  const SizedBox(width: kPanelPadding),
+                  // 【为什么 Stack 只包右栏，不包整页】
+                  // 抽屉与遮罩只覆盖右侧工作区，左栏必须保持可读可点 ——
+                  // 用户常常边看设置边改左栏参数。把 Stack 提到整页外面
+                  // （或用 Scaffold.endDrawer）会让遮罩连左栏一起压暗。
+                  Expanded(
+                    child: Stack(
+                      children: <Widget>[
+                        Positioned.fill(child: _buildRightSide()),
+                        /* 遮罩与抽屉都常驻在树里，由各自的动画组件决定可见性。
+                         *
+                         * 早先是 `if (_drawer != null)` 条件插入：抽屉关闭时被
+                         * 瞬间移除，滑入的柔和与消失的生硬形成对比，最容易被
+                         * 感知成「卡了一下」。现在开关都走过渡（见 DrawerHost）。 */
+                        Positioned.fill(
+                          child: _DrawerScrim(
+                            visible: _drawer != null,
+                            onTap: _closeDrawer,
+                          ),
+                        ),
+                        Positioned.fill(
+                          child: DrawerHost(
+                            current: _drawer,
+                            onClose: _closeDrawer,
+                            builder: _buildDrawerBody,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 左栏：四张卡片自上而下堆叠，底部一行图标条。
+  ///
+  /// 【为什么按可用高度逐档收紧间距】
+  /// 左栏四张卡片（登录区 / 信息区 / 选项区 / 操作）在设计窗口 1048x682 下，
+  /// 仅控件与按钮的硬高度就已经超过可用高度了 —— 能收的只有空白。所以这里量
+  /// 真实可用高度，从宽到紧试三档（normal → compact → dense），取第一个装得下
+  /// 的；三档都装不下才让它滚。
+  ///
+  /// 【图标条为什么不跟着卡片一起滚】
+  /// 图标条是常驻入口，滚走就找不到了。所以它放在滚动容器**外面**：卡片区
+  /// 自己滚，图标条钉在底部。选档时也要把图标条的高度从可用高度里扣掉。
+  ///
+  /// 仍然保留 SingleChildScrollView 兜底：万一某个系统的字体度量把
+  /// [PanelMetrics.contentHeight] 算得偏小，宁可让它能滚，也绝不能溢出
+  /// （溢出会直接画黄黑警示条）。
+  Widget _buildLeftPanel() {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints c) {
+        final Widget navBar = Padding(
+          padding: const EdgeInsets.only(top: kNavBarGap),
+          child: NavBar(
+            active: _drawer,
+            onSelect: _onNavSelect,
+          ),
+        );
+
+        // 无界高度（理论上不会出现，防御一下）：用常规档 + 图标条。
+        if (!c.hasBoundedHeight) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _buildLeftColumn(PanelMetrics.normal),
+              navBar,
+            ],
+          );
+        }
+
+        // 图标条是常驻的，先把它占的高度扣掉，剩下的才是卡片区可用高度。
+        final double cardsAvail =
+            c.maxHeight - kNavBarGap - kNavButtonSize;
+
+        // 从宽到紧，取第一个装得下的档位。
+        PanelMetrics chosen = PanelMetrics.dense;
+        for (final PanelMetrics candidate in PanelMetrics.byDescendingSpace) {
+          if (candidate.contentHeight <= cardsAvail) {
+            chosen = candidate;
+            break;
+          }
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Expanded(
+              child: _LeftPanelScroller(child: _buildLeftColumn(chosen)),
+            ),
+            navBar,
+          ],
+        );
+      },
+    );
+  }
+
+  /// 点底部图标：同一项再点一次 = 收起；点另一项 = 换成那一项。
+  void _onNavSelect(NavDestination d) {
+    setState(() => _drawer = _drawer == d ? null : d);
+  }
+
+  /// 收起抽屉。
+  void _closeDrawer() => setState(() => _drawer = null);
+
+  /// 按给定 destination 造出抽屉内容（不含外壳，外壳由 [DrawerHost] 负责）。
+  ///
+  /// 三个分支各自返回一块面板；文案与动作都在 widgets/drawer_panels.dart 里，
+  /// 这里只负责把页面的状态接进去 —— 与左栏卡片的分工一致。
+  ///
+  /// 【为什么回显能实时更新】
+  /// settings 分支读的是 _concurrency.text、profile 分支读的是 _account.text，
+  /// 两者都在 initState 里挂了监听（见 _onConcurrencyChanged / _onAccountChanged），
+  /// 打字时会 setState 让这里重跑。
+  Widget _buildDrawerBody(NavDestination d) {
+    return switch (d) {
+      NavDestination.settings => SettingsPanel(
+        autoStart: _autoStart,
+        notify: _notify,
+        retry: _autoRetry,
+        running: _running,
+        concurrency: _concurrency.text,
+        onAutoStartChanged: (bool v) => setState(() => _autoStart = v),
+        onNotifyChanged: (bool v) => setState(() => _notify = v),
+        onRetryChanged: (bool v) => setState(() => _autoRetry = v),
+      ),
+      NavDestination.profile => ProfilePanel(
+        account: _account.text,
+        onLogout: _logout,
+      ),
+      NavDestination.menu => MenuPanel(
+        onOpenDocs: () => _snack('使用说明（待接入）'),
+        onOpenLogs: () => _snack('运行日志（待接入）'),
+        onCheckUpdate: () => _snack('已是最新版本'),
+        onAbout: () => _snack('$kWindowTitle · 界面还原工程'),
+      ),
+    };
+  }
+
+  /// 「退出登录」：清掉账号与密码，回到未登录态。
+  void _logout() {
+    setState(() {
+      _account.clear();
+      _password.clear();
+      _payPassword.clear();
+      _drawer = null;
+    });
+    _snack('已退出登录');
+  }
+
+  /// 按给定档位堆出左栏的纵向列。
+  Widget _buildLeftColumn(PanelMetrics m) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        _buildLoginCard(m),
+        SizedBox(height: m.cardGap),
+        _buildInfoCard(m),
+        SizedBox(height: m.cardGap),
+        _buildOptionCard(m),
+        SizedBox(height: m.cardGap),
+        _buildActionCard(m),
+      ],
+    );
+  }
+
+  /// ① 登录区
+  Widget _buildLoginCard(PanelMetrics m) {
+    return PanelGroupBox(
+      title: '登录区',
+      padding: m.groupBoxPadding,
+      sectionGap: m.sectionGap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          LabeledField(
+            label: '账户',
+            controller: _account,
+            hint: '请输入账号',
+          ),
+          SizedBox(height: m.rowGap),
+          LabeledField(
+            label: '密码',
+            controller: _password,
+            hint: '请输入密码',
+            obscure: true,
+          ),
+          SizedBox(height: m.rowGap),
+          // 「支付密码」标签 4 个字，标签格给 51 正好放得下。
+          LabeledField(
+            label: '支付密码',
+            controller: _payPassword,
+            hint: '支付密码',
+            obscure: true,
+          ),
+          SizedBox(height: m.preButtonGap),
+          // .ui 里两个按钮是 75 宽 + 25 间距，落在 181 宽的内容区里；
+          // 这里改成等宽两格，宽度随面板自适应，视觉比例一致。
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: PanelButton(
+                  label: '发送',
+                  height: kCompactButtonHeight,
+                  // .ui 里 pushButton_fs 的 enabled = false：未登录时没有可发的
+                  // 东西。禁用态用 onPressed: null 表达。
+                  onPressed: null,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: PanelButton(
+                  label: '登录',
+                  primary: true,
+                  height: kCompactButtonHeight,
+                  // 业务动作留空实现：本任务只做界面。
+                  onPressed: () {},
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// ② 信息区
+  Widget _buildInfoCard(PanelMetrics m) {
+    return PanelGroupBox(
+      title: '信息区',
+      padding: m.groupBoxPadding,
+      sectionGap: m.sectionGap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          // 顶部：下拉占满一行，右侧 41x21 的「查询」小按钮。
+          // .ui 里下拉是 151 宽 + 按钮 41 宽（x=160），这里改成 Expanded + 固定宽，
+          // 面板变宽时只有下拉变宽，按钮尺寸不变。
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: PanelDropdown(
+                  value: _selectedAccount,
+                  items: _accountItems,
+                  hint: '选择已保存账号',
+                  onChanged: (String? v) => setState(() => _selectedAccount = v),
+                ),
+              ),
+              const SizedBox(width: 6),
+              SizedBox(
+                width: kSmallButtonWidth,
+                height: kSmallButtonHeight,
+                child: PanelButton(
+                  label: '查询',
+                  height: kSmallButtonHeight,
+                  onPressed: () {},
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: m.rowGap),
+          // .ui 的 lineEdit_cpxx_2：整行 181 宽、placeholder 为 "key"、
+          // alignment = AlignCenter、enabled = false。
+          //
+          // 【为什么做成整行无标签的输入框】
+          // 它没有配对的 QLabel（其余六行都是「标签格 + 输入格」），而是自己占
+          // 满整行 181 —— 从名字看是「藏品信息 2」，从位置看紧跟在账号下拉下面，
+          // 是下拉选中之后回填的只读值。这里照 .ui 的形状还原：无标签、居中、
+          // 禁用态，而不是硬塞进 LabeledField 的两格结构。
+          SizedBox(
+            height: kRowHeight,
+            child: _BareField(
+              controller: _cardKey,
+              hint: 'key',
+              enabled: false,
+            ),
+          ),
+          SizedBox(height: m.rowGap),
+          LabeledField(
+            label: '藏品信息',
+            controller: _collection,
+            hint: '自己填写或选择',
+          ),
+          SizedBox(height: m.rowGap),
+          LabeledField(
+            label: '藏品Id',
+            controller: _collectionId,
+            hint: '自己填写或选择',
+          ),
+          SizedBox(height: m.rowGap),
+          LabeledField(
+            label: '数量',
+            controller: _quantity,
+            keyboardType: TextInputType.number,
+          ),
+          SizedBox(height: m.rowGap),
+          LabeledField(
+            label: '价格',
+            controller: _price,
+            keyboardType: TextInputType.number,
+          ),
+          SizedBox(height: m.preButtonGap),
+          // .ui 里是 181x23 的整行按钮，这里用 23 高 + 占满宽。
+          PanelButton(
+            label: '加入修改',
+            height: kCompactButtonHeight,
+            onPressed: () {},
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// ③ 选项区：三行「标签 + 下拉」。
+  Widget _buildOptionCard(PanelMetrics m) {
+    return PanelGroupBox(
+      title: '选项区',
+      padding: m.groupBoxPadding,
+      sectionGap: m.sectionGap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          _LabeledDropdown(
+            label: '功能',
+            value: _function,
+            items: _functionItems,
+            onChanged: (String? v) => setState(() => _function = v),
+          ),
+          SizedBox(height: m.rowGap),
+          _LabeledDropdown(
+            label: '方式',
+            value: _method,
+            items: _methodItems,
+            onChanged: (String? v) => setState(() => _method = v),
+          ),
+          SizedBox(height: m.rowGap),
+          _LabeledDropdown(
+            label: '支付',
+            value: _pay,
+            items: _payItems,
+            onChanged: (String? v) => setState(() => _pay = v),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// ④ 操作区：并发输入框 + 「开始 / 结束」。
+  ///
+  /// 对应 .ui 里的 groupBox（y=480，211x81），标题「操作」。控件布局与「登录区」
+  /// 同构：上面一行「标签格 + 输入格」，下面一行两个等宽按钮。
+  ///
+  /// 【开始 / 结束 的禁用互斥】
+  /// 两个按钮不可能同时可用 —— 没在跑的时候「开始」可点、「结束」不可点，反之
+  /// 亦然。用 onPressed: null 表达禁用（与「发送」一致），不另加 enabled 参数。
+  Widget _buildActionCard(PanelMetrics m) {
+    return PanelGroupBox(
+      title: '操作',
+      padding: m.groupBoxPadding,
+      sectionGap: m.sectionGap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          LabeledField(
+            label: '并发',
+            controller: _concurrency,
+            keyboardType: TextInputType.number,
+          ),
+          SizedBox(height: m.preButtonGap),
+          // .ui 里两个按钮是 75 宽、左 20 / 右 120（间距 25），落在 181 宽的内容区；
+          // 与登录区一样改成等宽两格，宽度随面板自适应。
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: PanelButton(
+                  label: '开始',
+                  primary: true,
+                  height: kCompactButtonHeight,
+                  onPressed: _running ? null : _startRun,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: PanelButton(
+                  label: '结束',
+                  height: kCompactButtonHeight,
+                  onPressed: _running ? _stopRun : null,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 「开始」：把整表切成只读，并给一条提示。
+  ///
+  /// 只改界面状态（[_running]），不启动任何后台任务 —— 本任务仍是纯界面还原。
+  void _startRun() {
+    setState(() => _running = true);
+    _snack('已开始，运行期间表格不可修改');
+  }
+
+  /// 「结束」：恢复表格可编辑。
+  void _stopRun() {
+    setState(() => _running = false);
+    _snack('已结束');
+  }
+
+  /// 右侧：标签条 + 三张表。
+  ///
+  /// 用 IndexedStack 而不是每次重建当前表：三张表各自持有列宽与滚动位置，
+  /// 换 Tab 时若销毁重建，用户拖好的列宽会全部回到默认比例。
+  Widget _buildRightSide() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        FlatTabBar(
+          tabs: _tabTitles,
+          index: _tabIndex,
+          onChanged: (int i) => setState(() => _tabIndex = i),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: IndexedStack(
+            index: _tabIndex,
+            children: <Widget>[
+              _buildTable(0, kRunColumns, _runRows, _runSelected, '暂无运行中的任务'),
+              _buildTable(1, kOrderColumns, _orderRows, _orderSelected, '暂无订单信息'),
+              _buildTable(2, kDoneColumns, _doneRows, _doneSelected, '暂无已完成的任务'),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTable(
+    int tabIndex,
+    List<TaskColumn> columns,
+    List<TaskRow> rows,
+    Set<int> selected,
+    String emptyHint,
+  ) {
+    return TaskTable(
+      columns: columns,
+      rows: rows,
+      selected: selected,
+      emptyHint: emptyHint,
+      onToggleSelection: (int i) => _toggleSelection(selected, i),
+      onSelectAll: () => _selectAll(tabIndex),
+      onInvertSelection: () => _invertSelection(tabIndex),
+      onDeleteSelected: () => _deleteSelected(tabIndex),
+      onDeleteSucceeded: () => _deleteSucceeded(tabIndex),
+      // 「操作」卡片的「开始 / 结束」驱动整表只读（见 _buildActionCard）。
+      // 禁用态的提示通道一直就是接好的，这里只是把开关接上。
+      enabled: !_running,
+      onDisabledTap: _snack,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 页面私有：抽屉遮罩
+// ---------------------------------------------------------------------------
+
+/// 抽屉打开时压在右侧工作区上的半透明遮罩，自带淡入淡出。
+///
+/// 【为什么常驻在树里而不是条件插入】
+/// 条件插入会让遮罩「啪」地出现 / 消失。抽屉本体是 300ms 滑入的，遮罩瞬间
+/// 到位就会显得两者不同步。这里用 AnimatedOpacity 跟着抽屉一起渐变：
+/// 进场与 [kDrawerDuration] 同长，退场用更短的 [kDrawerExitDuration]。
+///
+/// 【浓度来自 theme】
+/// 早先这里直接写死 `Color(0x2E000000)`，而 theme.dart 里另有一个
+/// `kDrawerScrimAlpha = 0.18` 没人用 —— 注释声称取的是那个常量，实际是硬编码。
+/// 那种「文档与代码背离」比单纯硬编码更难查：改常量毫无效果，但注释说已生效。
+class _DrawerScrim extends StatelessWidget {
+  const _DrawerScrim({required this.visible, required this.onTap});
+
+  final bool visible;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      // 收起后不吃点击，否则遮罩会挡住表格的右键菜单。
+      ignoring: !visible,
+      child: AnimatedOpacity(
+        opacity: visible ? 1 : 0,
+        duration: visible ? kDrawerDuration : kDrawerExitDuration,
+        curve: visible ? kSlideInCurve : kSlideOutCurve,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: ColoredBox(
+            color: Colors.black.withValues(alpha: kDrawerScrimAlpha),
+            child: const SizedBox.expand(),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 页面私有：左栏滚动容器
+// ---------------------------------------------------------------------------
+
+/// 左栏在窗口变矮时的滚动容器，自带独立控制器。
+///
+/// 单独成组件（而不是在 build 里现造 ScrollController）的原因与表格那边一样：
+/// controller 实例必须跨帧稳定，否则每帧都换一个新实例，滚动位置会被重置。
+///
+/// 【滚动条只在真的需要时才出现】
+/// 早先 `thumbVisibility: true` 是硬开：1048x682 下左栏其实完全放得下
+/// （实测 maxScrollExtent = 0），却常驻一根灰条，还把卡片挤窄 8px。
+/// 现在监听滚动位置，只有 maxScrollExtent > 0 才让出那条 8px 并显示滚动条 ——
+/// 不需要滚动时卡片用满整个宽度，左右内边距也就对称了。
+class _LeftPanelScroller extends StatefulWidget {
+  const _LeftPanelScroller({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_LeftPanelScroller> createState() => _LeftPanelScrollerState();
+}
+
+class _LeftPanelScrollerState extends State<_LeftPanelScroller> {
+  final ScrollController _controller = ScrollController();
+
+  /// 当前是否真的需要滚动。决定滚动条可见性与右侧让位。
+  bool _scrollable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_syncScrollable);
+  }
+
+  /// 布局完成后才知道内容有多高，所以要在帧末同步一次。
+  void _syncScrollable() {
+    if (!_controller.hasClients) {
+      return;
+    }
+    final bool next = _controller.position.maxScrollExtent > 0.5;
+    if (next != _scrollable && mounted) {
+      setState(() => _scrollable = next);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_syncScrollable);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 每帧结束后核对一次：内容高度变化（窗口缩放、字体度量差异）时
+    // 不会触发滚动事件，只靠监听会漏掉。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncScrollable());
+
+    return Scrollbar(
+      controller: _controller,
+      // 需要滚动才显示；不需要时彻底不占位。
+      thumbVisibility: _scrollable,
+      thickness: kScrollThickness,
+      radius: const Radius.circular(kScrollRadius),
+      child: SingleChildScrollView(
+        controller: _controller,
+        // 只在需要滚动时留出滚动条的 8px，否则卡片可以用满整个宽度。
+        padding: EdgeInsets.only(
+          right: _scrollable ? kLeftPanelScrollGutter : 0,
+        ),
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 页面私有：无标签的整行输入框
+// ---------------------------------------------------------------------------
+
+/// 整行一个输入框、没有左侧标签格 —— 对应 .ui 里 lineEdit_cpxx_2 那种形状。
+///
+/// 与 [LabeledField] 的区别只有两点：没有标签格、文字居中。刻意不复用
+/// LabeledField 加一个 `showLabel: false`：那样它内部就要分叉「有标签时画两格、
+/// 没标签时画一格」，圆角规则（外侧两角 vs 四角）也跟着变，反而更难读。
+///
+/// 这里只做「禁用态 + 居中文本」这一种形态 —— 目前唯一的用处就是那个
+/// placeholder 为 `key` 的只读回填框。真要长出别的形态，再考虑抽公共件。
+class _BareField extends StatelessWidget {
+  const _BareField({
+    required this.controller,
+    this.hint = '',
+    this.enabled = true,
+  });
+
+  final TextEditingController controller;
+  final String hint;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: enabled ? WorkColors.fieldFill : WorkColors.panel,
+        border: Border.all(color: WorkColors.border, width: 1),
+        // 独立一格，四角全圆 —— 没有相邻的标签格要接缝。
+        borderRadius: BorderRadius.circular(kRadius),
+      ),
+      child: TextField(
+        controller: controller,
+        enabled: enabled,
+        // .ui 里 alignment = Qt::AlignCenter，文字居中。
+        textAlign: TextAlign.center,
+        cursorHeight: 15,
+        style: const TextStyle(
+          fontSize: kFontBody,
+          color: WorkColors.textPrimary,
+          fontFamily: kFontFamily,
+          fontFamilyFallback: kFontFallback,
+        ),
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: const TextStyle(
+            fontSize: kFontHint,
+            color: WorkColors.textMuted,
+            fontFamily: kFontFamily,
+            fontFamilyFallback: kFontFallback,
+          ),
+          // 边框与底色由外层 Container 画，这里必须清掉，否则双层边框。
+          filled: false,
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          disabledBorder: InputBorder.none,
+          isDense: true,
+          contentPadding: EdgeInsets.zero,
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 页面私有：「标签 + 下拉」一行
+// ---------------------------------------------------------------------------
+
+/// 「功能 / 方式 / 支付」三行是「标签格 + 下拉格」的组合，与 LabeledField
+/// 同一套两格语言，只是右格换成了 PanelDropdown。
+///
+/// 为什么不把 LabeledField 泛化成一个「右格可以塞任意控件」的组件：那样它就要
+/// 多一个 child 参数、内部再判断「给的是 TextField 还是别的」，聚焦发光、禁用
+/// 底色这些逻辑都要分叉。这里另写 20 行组合，两边各自单纯。
+class _LabeledDropdown extends StatelessWidget {
+  const _LabeledDropdown({
+    required this.label,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String? value;
+  final List<String> items;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: kRowHeight,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Container(
+            // 与 LabeledField 共用同一个标签格宽度，三张卡片的输入框左边界
+            // 才落在同一条竖线上。
+            width: kLabelWidth,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: WorkColors.panel,
+              border: Border.all(color: WorkColors.border, width: 1),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(kRadius),
+                bottomLeft: Radius.circular(kRadius),
+              ),
+            ),
+            child: Padding(
+              // 与 LabeledField 的标签格同样的处理：51 宽的格子里放四字标签，
+              // 任何水平内边距都会挤成省略号。
+              padding: EdgeInsets.zero,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  style: const TextStyle(
+                    fontSize: kFontBody,
+                    color: WorkColors.textPrimary,
+                    fontFamily: kFontFamily,
+                    fontFamilyFallback: kFontFallback,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: PanelDropdown(
+              value: value,
+              items: items,
+              onChanged: onChanged,
+              // 只圆右侧两角：左格（标签）只圆左边两角，中间共用 1px 边框，
+              // 与 LabeledField 的两格语言一致。
+              borderRadius: const BorderRadius.only(
+                topRight: Radius.circular(kRadius),
+                bottomRight: Radius.circular(kRadius),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

@@ -1,0 +1,24 @@
+﻿# 默认保持原样，不做行尾转换
+* text=auto eol=lf
+
+# Dart / C++ / 配置：统一 LF（Flutter 官方风格）
+*.dart    text eol=lf
+*.yaml    text eol=lf
+*.yml     text eol=lf
+*.md      text eol=lf
+*.ui      text eol=lf
+*.py      text eol=lf
+*.cc      text eol=lf
+*.cpp     text eol=lf
+*.h       text eol=lf
+*.cmake   text eol=lf
+CMakeLists.txt text eol=lf
+
+# Windows 资源脚本需要 CRLF
+*.rc      text eol=crlf
+*.manifest text eol=crlf
+
+# 二进制：不做任何转换
+*.ico     binary
+*.png     binary
+*.jpg     binary
