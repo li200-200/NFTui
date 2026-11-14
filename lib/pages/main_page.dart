@@ -22,7 +22,7 @@ import 'package:app_ui/widgets/drawer_panels.dart';
 import 'package:app_ui/widgets/flat_tab_bar.dart';
 import 'package:app_ui/widgets/nav_bar.dart';
 import 'package:app_ui/widgets/panel_controls.dart';
-import 'package:app_ui/widgets/panel_group_box.dart';
+import 'package:app_ui/widgets/setting_table.dart';
 import 'package:app_ui/widgets/task_table.dart';
 import 'package:app_ui/widgets/work_snack.dart';
 import 'package:app_ui/widgets/work_title_bar.dart';
@@ -36,43 +36,71 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> {
   // ---- 输入框控制器（本类持有 → 本类负责 dispose）----
-  final TextEditingController _account = TextEditingController();
-  final TextEditingController _password = TextEditingController();
-  final TextEditingController _payPassword = TextEditingController();
-  final TextEditingController _collection = TextEditingController();
-  final TextEditingController _collectionId = TextEditingController();
+  //
+  // 【命名规则：与 .ui 的 objectName 一一对应】
+  // 需求是「所有组件的 objectName 改为 ui 的 objectName」，所以这里的每个字段都
+  // 直接取 config.ui / untitled.ui 里的控件名（去掉下划线、转小驼峰）：
+  //   lineEdit_zh      → _lineEditZh        账户
+  //   lineEdit_mm      → _lineEditMm        密码
+  //   lineEdit_zfmm    → _lineEditZfmm      支付密码
+  //   lineEdit_cpxx    → _lineEditCpxx      藏品信息
+  //   lineEdit_cpid    → _lineEditCpid      藏品Id
+  //   lineEdit_sl      → _lineEditSl        数量
+  //   lineEdit_jg      → _lineEditJg        价格
+  //   lineEdit_cpxx_2  → _lineEditCpxx2     信息区里那个 key 输入框
+  //   lineEdit_bf      → _lineEditBf        并发
+  //   lineEdit_shqz    → _lineEditShqz      上号器区前缀
+  //   lineEdit_tz      → _lineEditTz        通知区地址
+  // 这样从 Flutter 代码反查 .ui 不用再靠记忆猜名字。
+  final TextEditingController _lineEditZh = TextEditingController();
+  final TextEditingController _lineEditMm = TextEditingController();
+  final TextEditingController _lineEditZfmm = TextEditingController();
+  final TextEditingController _lineEditCpxx = TextEditingController();
+  final TextEditingController _lineEditCpid = TextEditingController();
   // .ui 里这两个输入框的 text 分别是 "1" / "100"，原样作为默认值。
-  final TextEditingController _quantity = TextEditingController(text: '1');
-  final TextEditingController _price = TextEditingController(text: '100');
+  final TextEditingController _lineEditSl = TextEditingController(text: '1');
+  final TextEditingController _lineEditJg = TextEditingController(text: '100');
 
   /// 信息区里那个 placeholder 为 `key` 的输入框（.ui 的 lineEdit_cpxx_2）。
   ///
   /// 它在 .ui 里是 `enabled = false` 的：没有登录时没有可填的 key。这里按同样的
   /// 语义做成禁用态，登录成功后才由业务层打开（本任务不接业务，保持禁用）。
-  final TextEditingController _cardKey = TextEditingController();
+  final TextEditingController _lineEditCpxx2 = TextEditingController();
 
   /// 操作区的「并发」输入框（.ui 的 lineEdit_bf），默认值 "1"。
-  final TextEditingController _concurrency = TextEditingController(text: '1');
+  final TextEditingController _lineEditBf = TextEditingController(text: '1');
 
   // ---- 下拉选中值 ----
   /// 信息区顶部那个 QComboBox 在 .ui 里没有 item，只有 currentText 为空。
   /// 保留成「空列表 + 提示」，等真正接上数据源时往里塞候选即可。
-  String? _selectedAccount;
-  static const List<String> _accountItems = <String>[];
+  String? _comboBoxXx;
+  static const List<String> _comboBoxXxItems = <String>[];
 
-  static const List<String> _functionItems = <String>['默认模式', '一键下单'];
-  static const List<String> _methodItems = <String>['锁单', '提取支付链接', '余额支付'];
-  static const List<String> _payItems = <String>[
+  static const List<String> _comboBoxGnItems = <String>['默认模式', '一键下单'];
+  static const List<String> _comboBoxFsItems = <String>[
+    '锁单',
+    '提取支付链接',
+    '余额支付',
+  ];
+  static const List<String> _comboBoxZfItems = <String>[
     '易宝自动支付',
     '汇付自动支付',
     '连连自动支付',
     '衫德自动支付',
   ];
 
+  /// 通知区的通知方式下拉（.ui 的 comboBox_tzxx，三项写死在 .ui 里）。
+  static const List<String> _comboBoxTzxxItems = <String>[
+    '息知',
+    'wxpur',
+    'baerk',
+  ];
+
   /// 默认选中项取自 .ui 的 currentText，不能改成别的。
-  String? _function = '默认模式';
-  String? _method = '锁单';
-  String? _pay = '易宝自动支付';
+  String? _comboBoxGn = '默认模式';
+  String? _comboBoxFs = '锁单';
+  String? _comboBoxZf = '易宝自动支付';
+  String? _comboBoxTzxx = '息知';
 
   /// 「运行中」开关。.ui 里没有这个状态位，但「操作」卡片上的「开始 / 结束」
   /// 两个按钮需要它来驱动：开始之后表格整表只读（TaskTable.enabled = false），
@@ -86,10 +114,34 @@ class _MainPageState extends State<MainPage> {
   /// 归属，拆成两个字段就一定会有「开着但不知道是哪一项」的中间态。
   NavDestination? _drawer;
 
-  /// 抽屉里三个开关的状态。同样只是界面状态，不落盘。
-  bool _autoStart = false;
-  bool _autoRetry = true;
-  bool _notify = true;
+  /// 设置页（抽屉里的「设置」）的状态。
+  ///
+  /// 逐项对应 config.ui 里的勾选框：
+  ///   checkBox_qyxh   → _checkBoxQyxh    启用小号
+  ///   checkBox_qyhk   → _checkBoxQyhk    启用滑块
+  ///   checkBox_qydl   → _checkBoxQydl    启用代理
+  ///   checkBox_qydl_2 → _checkBoxQydl2   通知区的「启用代理」
+  /// 与左栏一样，这些都只是界面状态，不落盘、不接业务。
+  bool _checkBoxQyxh = false;
+  bool _checkBoxQyhk = false;
+  bool _checkBoxQydl = false;
+  bool _checkBoxQydl2 = false;
+
+  /// 设置页里两个输入框。归页面持有 —— 抽屉每次开关都会重建内容，
+  /// controller 若在 build 里现造，打字打到一半切走再切回来就丢了。
+  ///
+  /// 上号器区只剩「前缀」一个（lineEdit_shqz）：更早的 lineEdit_3（格式说明）
+  /// 已被 .ui 删除，那段文字并入了分组标题。
+  final TextEditingController _lineEditShqz = TextEditingController();
+
+  /// 通知区（groupBox「通知区」）里的地址输入框（.ui 的 lineEdit_tz）。
+  final TextEditingController _lineEditTz = TextEditingController();
+
+  /// 小号表的数据。取自 config.ui 的 tableWidget_xh（列名 no / phone / token）。
+  ///
+  /// 预置 10 条模拟数据：表格高度锁定在 config.ui 的 141 附近，10 条放不下，
+  /// 所以框内可滚动 —— 这样滚动条、隔行底色、表头固定这几件事都能一眼看到。
+  List<SubAccount> _subAccounts = List<SubAccount>.of(kDemoSubAccounts);
 
   // ---- Tab 与三张表 ----
   static const List<String> _tabTitles = <String>['运行', '订单信息', '完成'];
@@ -111,21 +163,22 @@ class _MainPageState extends State<MainPage> {
   @override
   void initState() {
     super.initState();
-    /* 抽屉里的「并发数」回显读的是 _concurrency.text。
+    /* 设置页里输入框的当前值要回显到面板上。
      *
      * 【为什么必须手动监听】
      * TextField 打字只通知它自己的 EditableText，不会触发页面 setState ——
-     * 所以 _buildDrawer() 不会重跑，抽屉里那个只读回显会一直停在打开抽屉那一刻
-     * 的值。实测：抽屉开着时把并发改成 42，回显仍然是 "1"。
+     * 所以 _buildDrawerBody() 不会重跑。这个监听让「抽屉开着时打字」能
+     * 实时反映到面板上。
      *
-     * 这里挂一个监听，只在「抽屉正开着设置面板」时才 setState —— 抽屉没开时
-     * 每次按键都重建整页（含三张表）是纯粹的浪费。 */
-    _concurrency.addListener(_onConcurrencyChanged);
-    // 个人中心的头像首字母与「已登录 / 未登录」也读 _account.text，同一个坑。
-    _account.addListener(_onAccountChanged);
+     * 只在「抽屉正开着设置面板」时才 setState：抽屉没开时每次按键都重建整页
+     * （含三张表）是纯粹的浪费。 */
+    _lineEditShqz.addListener(_onSettingFieldChanged);
+    _lineEditTz.addListener(_onSettingFieldChanged);
+    // 个人中心的头像首字母与「已登录 / 未登录」也读 _lineEditZh.text，同一个坑。
+    _lineEditZh.addListener(_onAccountChanged);
   }
 
-  void _onConcurrencyChanged() {
+  void _onSettingFieldChanged() {
     if (_drawer == NavDestination.settings && mounted) {
       setState(() {});
     }
@@ -141,21 +194,36 @@ class _MainPageState extends State<MainPage> {
   void dispose() {
     // 先摘监听再释放：dispose 期间 controller 还会发一次通知，
     // 那时如果回调还在，就会对已 unmount 的 State 调 setState。
-    _concurrency.removeListener(_onConcurrencyChanged);
-    _account.removeListener(_onAccountChanged);
-    _account.dispose();
-    _password.dispose();
-    _payPassword.dispose();
-    _collection.dispose();
-    _collectionId.dispose();
-    _quantity.dispose();
-    _price.dispose();
-    _cardKey.dispose();
-    _concurrency.dispose();
+    _lineEditShqz.removeListener(_onSettingFieldChanged);
+    _lineEditTz.removeListener(_onSettingFieldChanged);
+    _lineEditZh.removeListener(_onAccountChanged);
+    _lineEditZh.dispose();
+    _lineEditMm.dispose();
+    _lineEditZfmm.dispose();
+    _lineEditCpxx.dispose();
+    _lineEditCpid.dispose();
+    _lineEditSl.dispose();
+    _lineEditJg.dispose();
+    _lineEditCpxx2.dispose();
+    _lineEditBf.dispose();
+    _lineEditShqz.dispose();
+    _lineEditTz.dispose();
     super.dispose();
   }
 
   void _snack(String message) => showWorkSnack(context, message);
+
+  /// 「小号区」的「获取」按钮。
+  ///
+  /// 真实场景是去接口拉小号列表。这里没有网络层，所以只做一件有意义的事：
+  /// 把列表按倒序重排（相当于「刷新了一遍」），让用户看得出按钮确实生效了。
+  /// 接入真实数据源时，把这里换成 await 请求 + setState 即可。
+  void _fetchSubAccounts() {
+    setState(() {
+      _subAccounts = _subAccounts.reversed.toList();
+    });
+    _snack('已刷新 ${_subAccounts.length} 个小号');
+  }
 
   // -------------------------------------------------------------------------
   // 表格的选中 / 删除动作
@@ -423,23 +491,42 @@ class _MainPageState extends State<MainPage> {
   /// 这里只负责把页面的状态接进去 —— 与左栏卡片的分工一致。
   ///
   /// 【为什么回显能实时更新】
-  /// settings 分支读的是 _concurrency.text、profile 分支读的是 _account.text，
-  /// 两者都在 initState 里挂了监听（见 _onConcurrencyChanged / _onAccountChanged），
-  /// 打字时会 setState 让这里重跑。
+  /// settings 分支读的是 _lineEditShqz/_lineEditTz.text、profile 分支读的是
+  /// _lineEditZh.text，都在 initState 里挂了监听（见 _onSettingFieldChanged /
+  /// _onAccountChanged），打字时会 setState 让这里重跑。
   Widget _buildDrawerBody(NavDestination d) {
     return switch (d) {
       NavDestination.settings => SettingsPanel(
-        autoStart: _autoStart,
-        notify: _notify,
-        retry: _autoRetry,
-        running: _running,
-        concurrency: _concurrency.text,
-        onAutoStartChanged: (bool v) => setState(() => _autoStart = v),
-        onNotifyChanged: (bool v) => setState(() => _notify = v),
-        onRetryChanged: (bool v) => setState(() => _autoRetry = v),
+        checkBoxQyxh: _checkBoxQyxh,
+        checkBoxQyhk: _checkBoxQyhk,
+        checkBoxQydl: _checkBoxQydl,
+        checkBoxQydl2: _checkBoxQydl2,
+        lineEditShqzController: _lineEditShqz,
+        lineEditTzController: _lineEditTz,
+        comboBoxTzxx: _comboBoxTzxx,
+        comboBoxTzxxItems: _comboBoxTzxxItems,
+        subAccounts: _subAccounts,
+        onCheckBoxQyxhChanged: (bool v) =>
+            setState(() => _checkBoxQyxh = v),
+        onCheckBoxQyhkChanged: (bool v) =>
+            setState(() => _checkBoxQyhk = v),
+        onCheckBoxQydlChanged: (bool v) =>
+            setState(() => _checkBoxQydl = v),
+        onCheckBoxQydl2Changed: (bool v) =>
+            setState(() => _checkBoxQydl2 = v),
+        onLineEditShqzChanged: (String v) => setState(() {}),
+        onLineEditTzChanged: (String v) => setState(() {}),
+        onComboBoxTzxxChanged: (String? v) =>
+            setState(() => _comboBoxTzxx = v),
+        onFetchSubAccounts: _fetchSubAccounts,
+        onLinkSlider: () => _snack('滑块链接（待接入）'),
+        onLinkLoader: () => _snack('上号器链接（待接入）'),
+        onDisconnectLoader: () => _snack('上号器断开（待接入）'),
+        onLinkProxy: () => _snack('代理链接（待接入）'),
+        onTestNotify: () => _snack('通知测试（待接入）'),
       ),
       NavDestination.profile => ProfilePanel(
-        account: _account.text,
+        account: _lineEditZh.text,
         onLogout: _logout,
       ),
       NavDestination.menu => MenuPanel(
@@ -454,9 +541,9 @@ class _MainPageState extends State<MainPage> {
   /// 「退出登录」：清掉账号与密码，回到未登录态。
   void _logout() {
     setState(() {
-      _account.clear();
-      _password.clear();
-      _payPassword.clear();
+      _lineEditZh.clear();
+      _lineEditMm.clear();
+      _lineEditZfmm.clear();
       _drawer = null;
     });
     _snack('已退出登录');
@@ -479,9 +566,10 @@ class _MainPageState extends State<MainPage> {
     );
   }
 
-  /// ① 登录区
+  /// ① 登录区（`groupBox_login`）
   Widget _buildLoginCard(PanelMetrics m) {
     return PanelGroupBox(
+      objectName: kGroupBoxLogin,
       title: '登录区',
       padding: m.groupBoxPadding,
       sectionGap: m.sectionGap,
@@ -490,22 +578,25 @@ class _MainPageState extends State<MainPage> {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           LabeledField(
+            key: const ValueKey<String>(kLineEditZh),
             label: '账户',
-            controller: _account,
+            controller: _lineEditZh,
             hint: '请输入账号',
           ),
           SizedBox(height: m.rowGap),
           LabeledField(
+            key: const ValueKey<String>(kLineEditMm),
             label: '密码',
-            controller: _password,
+            controller: _lineEditMm,
             hint: '请输入密码',
             obscure: true,
           ),
           SizedBox(height: m.rowGap),
           // 「支付密码」标签 4 个字，标签格给 51 正好放得下。
           LabeledField(
+            key: const ValueKey<String>(kLineEditZfmm),
             label: '支付密码',
-            controller: _payPassword,
+            controller: _lineEditZfmm,
             hint: '支付密码',
             obscure: true,
           ),
@@ -516,6 +607,7 @@ class _MainPageState extends State<MainPage> {
             children: <Widget>[
               Expanded(
                 child: PanelButton(
+                  key: const ValueKey<String>(kPushButtonFs),
                   label: '发送',
                   height: kCompactButtonHeight,
                   // .ui 里 pushButton_fs 的 enabled = false：未登录时没有可发的
@@ -526,6 +618,7 @@ class _MainPageState extends State<MainPage> {
               const SizedBox(width: 8),
               Expanded(
                 child: PanelButton(
+                  key: const ValueKey<String>(kPushButtonDl),
                   label: '登录',
                   primary: true,
                   height: kCompactButtonHeight,
@@ -540,9 +633,10 @@ class _MainPageState extends State<MainPage> {
     );
   }
 
-  /// ② 信息区
+  /// ② 信息区（`groupBox_xx`）
   Widget _buildInfoCard(PanelMetrics m) {
     return PanelGroupBox(
+      objectName: kGroupBoxXx,
       title: '信息区',
       padding: m.groupBoxPadding,
       sectionGap: m.sectionGap,
@@ -557,10 +651,11 @@ class _MainPageState extends State<MainPage> {
             children: <Widget>[
               Expanded(
                 child: PanelDropdown(
-                  value: _selectedAccount,
-                  items: _accountItems,
+                  key: const ValueKey<String>(kComboBoxXx),
+                  value: _comboBoxXx,
+                  items: _comboBoxXxItems,
                   hint: '选择已保存账号',
-                  onChanged: (String? v) => setState(() => _selectedAccount = v),
+                  onChanged: (String? v) => setState(() => _comboBoxXx = v),
                 ),
               ),
               const SizedBox(width: 6),
@@ -568,6 +663,7 @@ class _MainPageState extends State<MainPage> {
                 width: kSmallButtonWidth,
                 height: kSmallButtonHeight,
                 child: PanelButton(
+                  key: const ValueKey<String>(kPushButtonCx),
                   label: '查询',
                   height: kSmallButtonHeight,
                   onPressed: () {},
@@ -586,39 +682,45 @@ class _MainPageState extends State<MainPage> {
           // 禁用态，而不是硬塞进 LabeledField 的两格结构。
           SizedBox(
             height: kRowHeight,
-            child: _BareField(
-              controller: _cardKey,
+            child: BareField(
+              key: const ValueKey<String>(kLineEditCpxx2),
+              controller: _lineEditCpxx2,
               hint: 'key',
               enabled: false,
             ),
           ),
           SizedBox(height: m.rowGap),
           LabeledField(
+            key: const ValueKey<String>(kLineEditCpxx),
             label: '藏品信息',
-            controller: _collection,
+            controller: _lineEditCpxx,
             hint: '自己填写或选择',
           ),
           SizedBox(height: m.rowGap),
           LabeledField(
+            key: const ValueKey<String>(kLineEditCpid),
             label: '藏品Id',
-            controller: _collectionId,
+            controller: _lineEditCpid,
             hint: '自己填写或选择',
           ),
           SizedBox(height: m.rowGap),
           LabeledField(
+            key: const ValueKey<String>(kLineEditSl),
             label: '数量',
-            controller: _quantity,
+            controller: _lineEditSl,
             keyboardType: TextInputType.number,
           ),
           SizedBox(height: m.rowGap),
           LabeledField(
+            key: const ValueKey<String>(kLineEditJg),
             label: '价格',
-            controller: _price,
+            controller: _lineEditJg,
             keyboardType: TextInputType.number,
           ),
           SizedBox(height: m.preButtonGap),
           // .ui 里是 181x23 的整行按钮，这里用 23 高 + 占满宽。
           PanelButton(
+            key: const ValueKey<String>(kPushButtonJr),
             label: '加入修改',
             height: kCompactButtonHeight,
             onPressed: () {},
@@ -628,9 +730,10 @@ class _MainPageState extends State<MainPage> {
     );
   }
 
-  /// ③ 选项区：三行「标签 + 下拉」。
+  /// ③ 选项区（`groupBox_xxq`）：三行「标签 + 下拉」。
   Widget _buildOptionCard(PanelMetrics m) {
     return PanelGroupBox(
+      objectName: kGroupBoxXxq,
       title: '选项区',
       padding: m.groupBoxPadding,
       sectionGap: m.sectionGap,
@@ -639,31 +742,34 @@ class _MainPageState extends State<MainPage> {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           _LabeledDropdown(
+            dropdownObjectName: kComboBoxGn,
             label: '功能',
-            value: _function,
-            items: _functionItems,
-            onChanged: (String? v) => setState(() => _function = v),
+            value: _comboBoxGn,
+            items: _comboBoxGnItems,
+            onChanged: (String? v) => setState(() => _comboBoxGn = v),
           ),
           SizedBox(height: m.rowGap),
           _LabeledDropdown(
+            dropdownObjectName: kComboBoxFs,
             label: '方式',
-            value: _method,
-            items: _methodItems,
-            onChanged: (String? v) => setState(() => _method = v),
+            value: _comboBoxFs,
+            items: _comboBoxFsItems,
+            onChanged: (String? v) => setState(() => _comboBoxFs = v),
           ),
           SizedBox(height: m.rowGap),
           _LabeledDropdown(
+            dropdownObjectName: kComboBoxZf,
             label: '支付',
-            value: _pay,
-            items: _payItems,
-            onChanged: (String? v) => setState(() => _pay = v),
+            value: _comboBoxZf,
+            items: _comboBoxZfItems,
+            onChanged: (String? v) => setState(() => _comboBoxZf = v),
           ),
         ],
       ),
     );
   }
 
-  /// ④ 操作区：并发输入框 + 「开始 / 结束」。
+  /// ④ 操作区（`groupBox`）：并发输入框 + 「开始 / 结束」。
   ///
   /// 对应 .ui 里的 groupBox（y=480，211x81），标题「操作」。控件布局与「登录区」
   /// 同构：上面一行「标签格 + 输入格」，下面一行两个等宽按钮。
@@ -673,6 +779,7 @@ class _MainPageState extends State<MainPage> {
   /// 亦然。用 onPressed: null 表达禁用（与「发送」一致），不另加 enabled 参数。
   Widget _buildActionCard(PanelMetrics m) {
     return PanelGroupBox(
+      objectName: kGroupBox,
       title: '操作',
       padding: m.groupBoxPadding,
       sectionGap: m.sectionGap,
@@ -681,8 +788,9 @@ class _MainPageState extends State<MainPage> {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           LabeledField(
+            key: const ValueKey<String>(kLineEditBf),
             label: '并发',
-            controller: _concurrency,
+            controller: _lineEditBf,
             keyboardType: TextInputType.number,
           ),
           SizedBox(height: m.preButtonGap),
@@ -692,6 +800,7 @@ class _MainPageState extends State<MainPage> {
             children: <Widget>[
               Expanded(
                 child: PanelButton(
+                  key: const ValueKey<String>(kPushButtonKs),
                   label: '开始',
                   primary: true,
                   height: kCompactButtonHeight,
@@ -701,6 +810,7 @@ class _MainPageState extends State<MainPage> {
               const SizedBox(width: 8),
               Expanded(
                 child: PanelButton(
+                  key: const ValueKey<String>(kPushButtonJs),
                   label: '结束',
                   height: kCompactButtonHeight,
                   onPressed: _running ? _stopRun : null,
@@ -727,7 +837,7 @@ class _MainPageState extends State<MainPage> {
     _snack('已结束');
   }
 
-  /// 右侧：标签条 + 三张表。
+  /// 右侧：标签条 + 三张表（`tabWidget_gongzuoqu`）。
   ///
   /// 用 IndexedStack 而不是每次重建当前表：三张表各自持有列宽与滚动位置，
   /// 换 Tab 时若销毁重建，用户拖好的列宽会全部回到默认比例。
@@ -736,6 +846,7 @@ class _MainPageState extends State<MainPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         FlatTabBar(
+          key: const ValueKey<String>(kTabWidgetGongzuoqu),
           tabs: _tabTitles,
           index: _tabIndex,
           onChanged: (int i) => setState(() => _tabIndex = i),
@@ -745,9 +856,30 @@ class _MainPageState extends State<MainPage> {
           child: IndexedStack(
             index: _tabIndex,
             children: <Widget>[
-              _buildTable(0, kRunColumns, _runRows, _runSelected, '暂无运行中的任务'),
-              _buildTable(1, kOrderColumns, _orderRows, _orderSelected, '暂无订单信息'),
-              _buildTable(2, kDoneColumns, _doneRows, _doneSelected, '暂无已完成的任务'),
+              _buildTable(
+                kTableWidgetYx,
+                0,
+                kRunColumns,
+                _runRows,
+                _runSelected,
+                '暂无运行中的任务',
+              ),
+              _buildTable(
+                kTableWidgetDdxx,
+                1,
+                kOrderColumns,
+                _orderRows,
+                _orderSelected,
+                '暂无订单信息',
+              ),
+              _buildTable(
+                kTableWidgetWc,
+                2,
+                kDoneColumns,
+                _doneRows,
+                _doneSelected,
+                '暂无已完成的任务',
+              ),
             ],
           ),
         ),
@@ -756,6 +888,7 @@ class _MainPageState extends State<MainPage> {
   }
 
   Widget _buildTable(
+    String objectName,
     int tabIndex,
     List<TaskColumn> columns,
     List<TaskRow> rows,
@@ -763,6 +896,7 @@ class _MainPageState extends State<MainPage> {
     String emptyHint,
   ) {
     return TaskTable(
+      key: ValueKey<String>(objectName),
       columns: columns,
       rows: rows,
       selected: selected,
@@ -903,69 +1037,10 @@ class _LeftPanelScrollerState extends State<_LeftPanelScroller> {
 // ---------------------------------------------------------------------------
 // 页面私有：无标签的整行输入框
 // ---------------------------------------------------------------------------
-
-/// 整行一个输入框、没有左侧标签格 —— 对应 .ui 里 lineEdit_cpxx_2 那种形状。
-///
-/// 与 [LabeledField] 的区别只有两点：没有标签格、文字居中。刻意不复用
-/// LabeledField 加一个 `showLabel: false`：那样它内部就要分叉「有标签时画两格、
-/// 没标签时画一格」，圆角规则（外侧两角 vs 四角）也跟着变，反而更难读。
-///
-/// 这里只做「禁用态 + 居中文本」这一种形态 —— 目前唯一的用处就是那个
-/// placeholder 为 `key` 的只读回填框。真要长出别的形态，再考虑抽公共件。
-class _BareField extends StatelessWidget {
-  const _BareField({
-    required this.controller,
-    this.hint = '',
-    this.enabled = true,
-  });
-
-  final TextEditingController controller;
-  final String hint;
-  final bool enabled;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: enabled ? WorkColors.fieldFill : WorkColors.panel,
-        border: Border.all(color: WorkColors.border, width: 1),
-        // 独立一格，四角全圆 —— 没有相邻的标签格要接缝。
-        borderRadius: BorderRadius.circular(kRadius),
-      ),
-      child: TextField(
-        controller: controller,
-        enabled: enabled,
-        // .ui 里 alignment = Qt::AlignCenter，文字居中。
-        textAlign: TextAlign.center,
-        cursorHeight: 15,
-        style: const TextStyle(
-          fontSize: kFontBody,
-          color: WorkColors.textPrimary,
-          fontFamily: kFontFamily,
-          fontFamilyFallback: kFontFallback,
-        ),
-        decoration: InputDecoration(
-          hintText: hint,
-          hintStyle: const TextStyle(
-            fontSize: kFontHint,
-            color: WorkColors.textMuted,
-            fontFamily: kFontFamily,
-            fontFamilyFallback: kFontFallback,
-          ),
-          // 边框与底色由外层 Container 画，这里必须清掉，否则双层边框。
-          filled: false,
-          border: InputBorder.none,
-          enabledBorder: InputBorder.none,
-          focusedBorder: InputBorder.none,
-          disabledBorder: InputBorder.none,
-          isDense: true,
-          contentPadding: EdgeInsets.zero,
-        ),
-      ),
-    );
-  }
-}
+//
+// 早先这里是私有类 `_BareField`。设置页的通知区（lineEdit_tz）也需要「没有标签、
+// 自己占一格」的输入框，私有类跨不了文件 —— 已提到
+// widgets/panel/bare_field.dart 成为公共的 BareField，两处共用。
 
 // ---------------------------------------------------------------------------
 // 页面私有：「标签 + 下拉」一行
@@ -979,11 +1054,15 @@ class _BareField extends StatelessWidget {
 /// 底色这些逻辑都要分叉。这里另写 20 行组合，两边各自单纯。
 class _LabeledDropdown extends StatelessWidget {
   const _LabeledDropdown({
+    required this.dropdownObjectName,
     required this.label,
     required this.value,
     required this.items,
     required this.onChanged,
   });
+
+  /// 下拉在 .ui 里的 objectName（`comboBox_gn` / `comboBox_fs` / `comboBox_zf`）。
+  final String dropdownObjectName;
 
   final String label;
   final String? value;
@@ -1031,6 +1110,7 @@ class _LabeledDropdown extends StatelessWidget {
           ),
           Expanded(
             child: PanelDropdown(
+              key: ValueKey<String>(dropdownObjectName),
               value: value,
               items: items,
               onChanged: onChanged,

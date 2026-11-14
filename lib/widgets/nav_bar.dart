@@ -17,12 +17,23 @@ import 'package:flutter/material.dart';
 import 'package:app_ui/theme.dart';
 
 /// 底部图标条上的三个入口。
+///
+/// 【每个抽屉的宽度不一样，这是刻意的】
+/// 三个面板装的东西差别很大：设置页有五张卡片（通知区一行要塞四件控件），
+/// 个人中心只有一个头像 + 两行字 + 一个按钮，菜单只有四个短条目。统一 360
+/// 会让后两者右侧空出大半片 —— 头像孤零零挂在左边，菜单像被拉长了。
+/// 所以每个 destination 自带一个宽度，由 [drawerWidthOf] 取值。
 enum NavDestination {
-  settings('设置', Icons.settings_outlined, Icons.settings),
-  profile('个人中心', Icons.person_outline, Icons.person),
-  menu('菜单', Icons.menu, Icons.menu_open);
+  settings(
+    '设置',
+    Icons.settings_outlined,
+    Icons.settings,
+    kDrawerWidthSettings,
+  ),
+  profile('个人中心', Icons.person_outline, Icons.person, kDrawerWidthProfile),
+  menu('菜单', Icons.menu, Icons.menu_open, kDrawerWidthMenu);
 
-  const NavDestination(this.label, this.icon, this.activeIcon);
+  const NavDestination(this.label, this.icon, this.activeIcon, this.width);
 
   /// 抽屉标题与 tooltip 文案。
   final String label;
@@ -32,7 +43,16 @@ enum NavDestination {
 
   /// 选中（抽屉正开着这一项）时的图标。
   final IconData activeIcon;
+
+  /// 这一项的抽屉宽度。按各自内容量定档，见 [kDrawerWidthSettings] 的说明。
+  final double width;
 }
+
+/// 取某个 destination 的抽屉宽度；null（抽屉关着）时回落到默认档。
+///
+/// 单独抽一个函数是为了让 DrawerHost 的「收起」分支也有一个合法宽度可用 ——
+/// 收起的瞬间仍要按上一次的宽度播退场动画，否则面板会在动画中途变宽/变窄。
+double drawerWidthOf(NavDestination? d) => d?.width ?? kDrawerWidthSettings;
 
 /// 左栏底部的三个图标按钮。
 class NavBar extends StatelessWidget {
@@ -239,13 +259,20 @@ class SlideOutDrawer extends StatelessWidget {
 /// 移除，而是先播完退场动画再由 AnimatedSwitcher 摘掉。
 ///
 /// [current] 为 null 表示应当收起；从「有值」变「null」时播退场动画。
+///
+/// 【宽度按 destination 逐项取，不再是一个统一值】
+/// 设置页要 360（五张卡片，通知区一行四件控件），个人中心 260、菜单 200 就够。
+/// 宽度取自 [NavDestination.width]，见那里的说明。
+///
+/// 【width 参数为什么还留着】
+/// 给测试与「临时想指定一个宽度」的场合用。传了就用它，不传就按 destination 取。
 class DrawerHost extends StatelessWidget {
   const DrawerHost({
     super.key,
     required this.current,
     required this.builder,
     required this.onClose,
-    this.width = kDrawerWidth,
+    this.width,
   });
 
   /// 当前要显示的抽屉；null = 收起。
@@ -256,7 +283,8 @@ class DrawerHost extends StatelessWidget {
 
   final VoidCallback onClose;
 
-  final double width;
+  /// 强制指定宽度。null（默认）= 按 [NavDestination.width] 逐项取。
+  final double? width;
 
   @override
   Widget build(BuildContext context) {
@@ -295,7 +323,7 @@ class DrawerHost extends StatelessWidget {
               key: ValueKey<NavDestination>(current!),
               title: current!.label,
               onClose: onClose,
-              width: width,
+              width: width ?? current!.width,
               child: builder(current!),
             ),
     );

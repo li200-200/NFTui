@@ -57,9 +57,9 @@
     <widget class="QPushButton" name="pushButton_xhhq">
      <property name="geometry">
       <rect>
-       <x>140</x>
+       <x>70</x>
        <y>160</y>
-       <width>101</width>
+       <width>81</width>
        <height>23</height>
       </rect>
      </property>
@@ -70,18 +70,31 @@
     <widget class="QCheckBox" name="checkBox_qyxh">
      <property name="geometry">
       <rect>
-       <x>40</x>
-       <y>155</y>
+       <x>0</x>
+       <y>160</y>
        <width>71</width>
-       <height>31</height>
+       <height>21</height>
       </rect>
      </property>
      <property name="text">
       <string>启用小号</string>
      </property>
     </widget>
+    <widget class="QLabel" name="label_xhts">
+     <property name="geometry">
+      <rect>
+       <x>160</x>
+       <y>160</y>
+       <width>151</width>
+       <height>21</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>*使用工具先获取小号数据</string>
+     </property>
+    </widget>
    </widget>
-   <widget class="QGroupBox" name="groupBox_2">
+   <widget class="QGroupBox" name="groupBox_hkq">
     <property name="geometry">
      <rect>
       <x>0</x>
@@ -96,38 +109,12 @@
     <property name="alignment">
      <set>Qt::AlignCenter</set>
     </property>
-    <widget class="QLabel" name="label">
+    <widget class="QPushButton" name="pushButton_hklj">
      <property name="geometry">
       <rect>
-       <x>10</x>
+       <x>140</x>
        <y>20</y>
-       <width>41</width>
-       <height>21</height>
-      </rect>
-     </property>
-     <property name="text">
-      <string>滑块Id</string>
-     </property>
-     <property name="alignment">
-      <set>Qt::AlignCenter</set>
-     </property>
-    </widget>
-    <widget class="QLineEdit" name="lineEdit">
-     <property name="geometry">
-      <rect>
-       <x>50</x>
-       <y>20</y>
-       <width>113</width>
-       <height>20</height>
-      </rect>
-     </property>
-    </widget>
-    <widget class="QPushButton" name="pushButton_xhhq_2">
-     <property name="geometry">
-      <rect>
-       <x>170</x>
-       <y>22</y>
-       <width>61</width>
+       <width>71</width>
        <height>21</height>
       </rect>
      </property>
@@ -135,36 +122,49 @@
       <string>链接</string>
      </property>
     </widget>
-    <widget class="QCheckBox" name="checkBox_qyxh_2">
+    <widget class="QCheckBox" name="checkBox_qyhk">
      <property name="geometry">
       <rect>
-       <x>240</x>
-       <y>10</y>
+       <x>220</x>
+       <y>20</y>
        <width>71</width>
-       <height>31</height>
+       <height>21</height>
       </rect>
      </property>
      <property name="text">
-      <string>启用小号</string>
+      <string>启用滑块</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_hkts">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>20</y>
+       <width>131</width>
+       <height>21</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>*滑块需要配合使用工具</string>
      </property>
     </widget>
    </widget>
-   <widget class="QGroupBox" name="groupBox_3">
+   <widget class="QGroupBox" name="groupBox_shq">
     <property name="geometry">
      <rect>
       <x>0</x>
       <y>240</y>
       <width>311</width>
-      <height>71</height>
+      <height>51</height>
      </rect>
     </property>
     <property name="title">
-     <string>上号器区</string>
+     <string>上号器区 格式：前缀-手机号-密码-支付密码</string>
     </property>
     <property name="alignment">
      <set>Qt::AlignCenter</set>
     </property>
-    <widget class="QLabel" name="label_2">
+    <widget class="QLabel" name="label_qz">
      <property name="geometry">
       <rect>
        <x>10</x>
@@ -180,22 +180,22 @@
       <set>Qt::AlignCenter</set>
      </property>
     </widget>
-    <widget class="QLineEdit" name="lineEdit_2">
+    <widget class="QLineEdit" name="lineEdit_shqz">
      <property name="geometry">
       <rect>
        <x>50</x>
        <y>20</y>
-       <width>81</width>
+       <width>91</width>
        <height>20</height>
       </rect>
      </property>
     </widget>
-    <widget class="QPushButton" name="pushButton_xhhq_3">
+    <widget class="QPushButton" name="pushButton_shqlj">
      <property name="geometry">
       <rect>
        <x>140</x>
        <y>20</y>
-       <width>61</width>
+       <width>71</width>
        <height>21</height>
       </rect>
      </property>
@@ -203,30 +203,149 @@
       <string>链接</string>
      </property>
     </widget>
-    <widget class="QCheckBox" name="checkBox_qyxh_3">
+    <widget class="QPushButton" name="pushButton_shqdk">
      <property name="geometry">
       <rect>
        <x>220</x>
-       <y>10</y>
+       <y>20</y>
        <width>71</width>
-       <height>31</height>
+       <height>21</height>
       </rect>
      </property>
      <property name="text">
-      <string>启用滑块</string>
+      <string>断开</string>
      </property>
     </widget>
-    <widget class="QLineEdit" name="lineEdit_3">
+   </widget>
+   <widget class="QGroupBox" name="groupBox_4">
+    <property name="geometry">
+     <rect>
+      <x>0</x>
+      <y>290</y>
+      <width>311</width>
+      <height>51</height>
+     </rect>
+    </property>
+    <property name="title">
+     <string>代理区</string>
+    </property>
+    <property name="alignment">
+     <set>Qt::AlignCenter</set>
+    </property>
+    <widget class="QPushButton" name="pushButton_dllj">
      <property name="geometry">
       <rect>
-       <x>50</x>
-       <y>50</y>
-       <width>211</width>
+       <x>140</x>
+       <y>20</y>
+       <width>71</width>
+       <height>21</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>链接</string>
+     </property>
+    </widget>
+    <widget class="QCheckBox" name="checkBox_qydl">
+     <property name="geometry">
+      <rect>
+       <x>220</x>
+       <y>20</y>
+       <width>71</width>
+       <height>21</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>启用代理</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_dl">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>20</y>
+       <width>131</width>
+       <height>21</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>*滑块需要配合使用工具</string>
+     </property>
+    </widget>
+   </widget>
+   <widget class="QGroupBox" name="groupBox">
+    <property name="geometry">
+     <rect>
+      <x>0</x>
+      <y>340</y>
+      <width>311</width>
+      <height>51</height>
+     </rect>
+    </property>
+    <property name="title">
+     <string>通知区</string>
+    </property>
+    <property name="alignment">
+     <set>Qt::AlignCenter</set>
+    </property>
+    <widget class="QComboBox" name="comboBox_tzxx">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>20</y>
+       <width>81</width>
+       <height>22</height>
+      </rect>
+     </property>
+     <item>
+      <property name="text">
+       <string>息知</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>wxpur</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>baerk</string>
+      </property>
+     </item>
+    </widget>
+    <widget class="QLineEdit" name="lineEdit_tz">
+     <property name="geometry">
+      <rect>
+       <x>90</x>
+       <y>20</y>
+       <width>101</width>
        <height>20</height>
       </rect>
      </property>
+    </widget>
+    <widget class="QPushButton" name="pushButton_dllj_2">
+     <property name="geometry">
+      <rect>
+       <x>190</x>
+       <y>20</y>
+       <width>71</width>
+       <height>21</height>
+      </rect>
+     </property>
      <property name="text">
-      <string>格式：前缀-手机号-密码-支付密码</string>
+      <string>测试</string>
+     </property>
+    </widget>
+    <widget class="QCheckBox" name="checkBox_qydl_2">
+     <property name="geometry">
+      <rect>
+       <x>260</x>
+       <y>20</y>
+       <width>71</width>
+       <height>21</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>启用代理</string>
      </property>
     </widget>
    </widget>

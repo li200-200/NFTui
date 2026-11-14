@@ -54,17 +54,29 @@ void main() {
       await tester.tap(find.byIcon(Icons.settings_outlined));
       await tester.pumpAndSettle();
 
-      final LabeledField conc = tester
+      // 设置页上号器区的「前缀」输入框。
+      final LabeledField prefix = tester
           .widgetList<LabeledField>(find.byType(LabeledField))
-          .firstWhere((LabeledField f) => f.label == '并发');
-      await tester.enterText(find.byWidget(conc), '42');
+          .firstWhere((LabeledField f) => f.label == '前缀');
+      await tester.enterText(
+        find.descendant(
+          of: find.byWidget(prefix),
+          matching: find.byType(TextField),
+        ),
+        '42',
+      );
       await tester.pumpAndSettle();
 
-      // 曾经：TextField 打字不触发页面 setState，回显永远停在打开时的值。
+      // 曾经两处都错过：控制器在 build 里现造（输入丢失）、且打字不触发
+      // setState（回显不更新）。现在控制器由页面持有，监听器负责刷新。
       final SettingsPanel panel = tester.widget<SettingsPanel>(
         find.byType(SettingsPanel),
       );
-      expect(panel.concurrency, '42', reason: '回显应随输入实时更新');
+      expect(
+        panel.lineEditShqzController.text,
+        '42',
+        reason: '输入应保留在页面持有的控制器里',
+      );
     });
 
     testWidgets('开着抽屉填账号，个人中心认得出来', (WidgetTester tester) async {

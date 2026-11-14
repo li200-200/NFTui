@@ -18,6 +18,7 @@ import 'package:app_ui/theme.dart';
 import 'package:app_ui/widgets/drawer_panels.dart';
 import 'package:app_ui/widgets/nav_bar.dart';
 import 'package:app_ui/widgets/panel_controls.dart';
+import 'package:app_ui/widgets/setting_table.dart';
 import 'package:app_ui/widgets/task_table.dart';
 
 Widget wrap() => MaterialApp(
@@ -191,13 +192,53 @@ void main() {
     await tester.pumpWidget(wrap());
     await tester.pumpAndSettle();
 
-    // 设置。
+    // 设置：三个分组来自 config.ui，逐项核对标题与控件文案。
     await tester.tap(find.byIcon(Icons.settings_outlined));
     await tester.pumpAndSettle();
     expect(find.text('设置'), findsWidgets);
-    expect(find.text('开机自动启动'), findsOneWidget);
-    expect(find.text('失败自动重试'), findsOneWidget);
-    expect(find.text('操作完成时提示'), findsOneWidget);
+    expect(find.text('小号区'), findsOneWidget);
+    expect(find.text('滑块区'), findsOneWidget);
+    expect(find.text('上号器区'), findsOneWidget);
+    // 小号表的列头。必须限定在抽屉内 —— 右侧主表格也有 no / phone / token
+    // 这几个列名，不限定范围会一次找到两处。
+    final Finder inDrawer = find.descendant(
+      of: find.byType(SettingsPanel),
+      matching: find.byType(Text),
+    );
+    for (final String col in <String>['no', 'phone', 'token']) {
+      expect(
+        find.descendant(
+          of: find.byType(SubAccountTable),
+          matching: find.text(col),
+        ),
+        findsOneWidget,
+        reason: '小号表应有「$col」列',
+      );
+    }
+    // 四个开关 + 四个按钮（最新 .ui 新增了代理区与通知区）。
+    // 需求指定「选择框使用开关样式」，文案照抄 .ui：
+    // 启用小号 / 启用滑块 / 启用代理 ×2（checkBox_qydl 与 checkBox_qydl_2 同名）。
+    expect(find.byType(SwitchTrack), findsNWidgets(4));
+    expect(find.text('启用小号'), findsOneWidget);
+    expect(find.text('启用滑块'), findsOneWidget);
+    expect(find.text('启用代理'), findsNWidgets(2));
+    expect(find.text('获取'), findsOneWidget);
+    // 「链接」三个：滑块区 pushButton_hklj、上号器区 pushButton_shqlj、
+    // 代理区 pushButton_dllj。
+    expect(find.text('链接'), findsNWidgets(3));
+    // 上号器区的「断开」与通知区的「测试」。
+    expect(find.text('断开'), findsOneWidget);
+    expect(find.text('测试'), findsOneWidget);
+    // 上号器区的前缀输入框 + 两行 `*` 提示（代理区的 label_dl 与滑块区同文案）。
+    // 最新 .ui 把格式说明并进了分组标题、删掉了那个输入框，所以标题里能看到它。
+    expect(find.text('前缀'), findsOneWidget);
+    expect(find.text('格式：前缀-手机号-密码-支付密码'), findsOneWidget);
+    expect(find.text('*使用工具先获取小号数据'), findsOneWidget);
+    expect(find.text('*滑块需要配合使用工具'), findsNWidgets(2));
+    // 新增的两个分区标题。
+    expect(find.text('代理区'), findsOneWidget);
+    expect(find.text('通知区'), findsOneWidget);
+    expect(inDrawer, findsWidgets); // 确保 finder 有效
 
     // 个人中心：未登录时按钮禁用。
     await tester.tap(find.byIcon(Icons.person_outline));
@@ -216,5 +257,76 @@ void main() {
       for (final String s in expected) tester.getTopLeft(find.text(s)).dy,
     ];
     expect(tops, orderedEquals(<double>[...tops]..sort()));
+  });
+
+  testWidgets('三个抽屉的宽度各不相同：按各自内容量定档', (WidgetTester tester) async {
+    setSurface(tester, kDesignWidth, kDesignHeight);
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+
+    /// 抽屉盒（含边框与内边距）的宽度。
+    double drawerBoxWidth() => tester
+        .getRect(
+          find
+              .descendant(
+                of: find.byType(SlideOutDrawer),
+                matching: find.byType(Container),
+              )
+              .first,
+        )
+        .width;
+
+    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.pumpAndSettle();
+    final double settingsW = drawerBoxWidth();
+
+    await tester.tap(find.byIcon(Icons.person_outline));
+    await tester.pumpAndSettle();
+    final double profileW = drawerBoxWidth();
+
+    await tester.tap(find.byIcon(Icons.menu));
+    await tester.pumpAndSettle();
+    final double menuW = drawerBoxWidth();
+
+    // ignore: avoid_print
+    print('抽屉宽度: 设置 $settingsW / 个人中心 $profileW / 菜单 $menuW');
+
+    // 设置页要放五张卡片（通知区一行四件控件），是三档里最宽的。
+    expect(settingsW, kDrawerWidthSettings);
+    expect(profileW, kDrawerWidthProfile);
+    expect(menuW, kDrawerWidthMenu);
+
+    // 需求：个人中心与菜单的抽屉要窄一些。
+    expect(profileW, lessThan(settingsW));
+    expect(menuW, lessThan(settingsW));
+    // 菜单内容最少（四个短条目），应是最窄的。
+    expect(menuW, lessThan(profileW));
+  });
+
+  testWidgets('窄抽屉下个人中心与菜单的内容仍完整、不溢出', (WidgetTester tester) async {
+    setSurface(tester, kDesignWidth, kDesignHeight);
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+
+    // 个人中心：头像 + 账号 + 状态 + 按钮都要在 260 里放得下。
+    await tester.tap(find.byIcon(Icons.person_outline));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: '个人中心不该溢出');
+    expect(find.text('未登录'), findsOneWidget);
+    expect(find.text('请先在左栏登录'), findsOneWidget);
+    expect(find.text('退出登录'), findsOneWidget);
+
+    // 菜单：四个条目在 200 里要能完整显示（「使用说明」四字约 50px）。
+    await tester.tap(find.byIcon(Icons.menu));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: '菜单不该溢出');
+    for (final String s in <String>['使用说明', '运行日志', '检查更新', '关于']) {
+      expect(find.text(s), findsOneWidget);
+    }
+
+    // 最窄档位下窗口再压小也不能溢出。
+    setSurface(tester, kMinWidth, kMinHeight);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 }
