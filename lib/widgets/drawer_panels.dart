@@ -90,6 +90,10 @@ class SettingsPanel extends StatelessWidget {
     required this.onDisconnectLoader,
     required this.onLinkProxy,
     required this.onTestNotify,
+    required this.subAccountSelected,
+    required this.onToggleSubAccountSelection,
+    required this.onSelectAllSubAccounts,
+    required this.onDeleteSelectedSubAccounts,
   });
 
   /// 四个「启用 X」开关，逐项对应 .ui 的 checkBox：
@@ -131,6 +135,18 @@ class SettingsPanel extends StatelessWidget {
   final VoidCallback onLinkProxy;
   final VoidCallback onTestNotify;
 
+  /// 小号表里被选中的行下标。
+  ///
+  /// 【为什么由页面持有而不是表格自己存】
+  /// 「删除选中小号」要真的从 [subAccounts] 里删掉那几行 —— 数据在页面手里，
+  /// 删除动作只能发生在那一层。表格自己存选中集合的话，页面还得再问它一遍，
+  /// 多一次来回同步。
+  final Set<int> subAccountSelected;
+
+  final ValueChanged<int> onToggleSubAccountSelection;
+  final VoidCallback onSelectAllSubAccounts;
+  final VoidCallback onDeleteSelectedSubAccounts;
+
   @override
   Widget build(BuildContext context) {
     // 不再锁死画布宽度：卡片用 Column 顺序堆叠，宽度由抽屉内容区决定，
@@ -164,6 +180,10 @@ class SettingsPanel extends StatelessWidget {
           SubAccountTable(
             key: const ValueKey<String>(kTableWidgetXh),
             rows: subAccounts,
+            selected: subAccountSelected,
+            onToggleSelection: onToggleSubAccountSelection,
+            onSelectAll: onSelectAllSubAccounts,
+            onDeleteSelected: onDeleteSelectedSubAccounts,
           ),
           const SizedBox(height: kSettingRowGap),
           // 开关、按钮、提示同排 —— 与 config.ui 的 checkBox_qyxh(0) /

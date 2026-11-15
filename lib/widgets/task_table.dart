@@ -25,6 +25,7 @@ import 'package:flutter/material.dart';
 
 import 'package:app_ui/models.dart';
 import 'package:app_ui/theme.dart';
+import 'package:app_ui/widgets/table_menu.dart';
 import 'package:app_ui/widgets/task_table_widths.dart';
 
 part 'task_table_body.dart';

@@ -155,6 +155,12 @@ class _MainPageState extends State<MainPage> {
   /// 所以框内可滚动 —— 这样滚动条、隔行底色、表头固定这几件事都能一眼看到。
   List<SubAccount> _subAccounts = List<SubAccount>.of(kDemoSubAccounts);
 
+  /// 小号表里被选中的行下标。
+  ///
+  /// 与三张任务表的选中集合分开：那是「任务行」，这是「小号行」，两者内容与
+  /// 语义都不同，混用会让「删小号」把任务行也删掉。
+  Set<int> _subAccountSelected = <int>{};
+
   // ---- Tab 与三张表 ----
   static const List<String> _tabTitles = <String>['运行', '订单信息', '完成'];
   int _tabIndex = 0;
@@ -292,8 +298,54 @@ class _MainPageState extends State<MainPage> {
   void _fetchSubAccounts() {
     setState(() {
       _subAccounts = _subAccounts.reversed.toList();
+      // 顺序全变了，旧的选中下标指向的是另外几行 —— 必须清掉，否则用户会
+      // 看到「刷新后莫名其妙有几行是选中的」。
+      _subAccountSelected = <int>{};
     });
     _snack('已刷新 ${_subAccounts.length} 个小号');
+  }
+
+  // ---- 小号表的选中 / 删除 ----
+
+  /// 点小号表的某一行：切换选中态。
+  void _toggleSubAccountSelection(int index) {
+    setState(() {
+      if (!_subAccountSelected.remove(index)) {
+        _subAccountSelected.add(index);
+      }
+    });
+  }
+
+  /// 右键菜单「全选」。
+  void _selectAllSubAccounts() {
+    setState(() {
+      _subAccountSelected = <int>{
+        for (int i = 0; i < _subAccounts.length; i++) i,
+      };
+    });
+  }
+
+  /// 右键菜单「删除选中小号」。
+  ///
+  /// 从后往前删：删掉一个之后，它后面所有元素的下标都会前移一位 ——
+  /// 正序删会漏掉紧邻的下一个。
+  void _deleteSelectedSubAccounts() {
+    final int count = _subAccountSelected.length;
+    if (count == 0) {
+      _snack('请先选中小号');
+      return;
+    }
+    setState(() {
+      final List<int> targets = _subAccountSelected.toList()
+        ..sort((int a, int b) => b.compareTo(a));
+      for (final int i in targets) {
+        if (i >= 0 && i < _subAccounts.length) {
+          _subAccounts.removeAt(i);
+        }
+      }
+      _subAccountSelected = <int>{};
+    });
+    _snack('已删除 $count 个小号');
   }
 
   // -------------------------------------------------------------------------
@@ -595,6 +647,10 @@ class _MainPageState extends State<MainPage> {
         onDisconnectLoader: () => _snack('上号器断开（待接入）'),
         onLinkProxy: () => _snack('代理链接（待接入）'),
         onTestNotify: () => _snack('通知测试（待接入）'),
+        subAccountSelected: _subAccountSelected,
+        onToggleSubAccountSelection: _toggleSubAccountSelection,
+        onSelectAllSubAccounts: _selectAllSubAccounts,
+        onDeleteSelectedSubAccounts: _deleteSelectedSubAccounts,
       ),
       NavDestination.profile => ProfilePanel(
         account: _lineEditZh.text,
@@ -942,6 +998,9 @@ class _MainPageState extends State<MainPage> {
                 _runRows,
                 _runSelected,
                 '暂无运行中的任务',
+                // 运行表是唯一可以选中行、可以右键出菜单的表 ——
+                // 抢单 / 删除这些操作都是针对它的。
+                selectable: true,
               ),
               _buildTable(
                 kTableWidgetDdxx,
@@ -950,6 +1009,8 @@ class _MainPageState extends State<MainPage> {
                 _orderRows,
                 _orderSelected,
                 '暂无订单信息',
+                // 订单信息只读：点了不变色、右键不出菜单。
+                selectable: false,
               ),
               _buildTable(
                 kTableWidgetWc,
@@ -958,6 +1019,8 @@ class _MainPageState extends State<MainPage> {
                 _doneRows,
                 _doneSelected,
                 '暂无已完成的任务',
+                // 完成的任务同样是只读快照。
+                selectable: false,
               ),
             ],
           ),
@@ -972,8 +1035,20 @@ class _MainPageState extends State<MainPage> {
     List<TaskColumn> columns,
     List<TaskRow> rows,
     Set<int> selected,
-    String emptyHint,
-  ) {
+    String emptyHint, {
+    required bool selectable,
+  }) {
+    /* 【两件事共同决定表格能不能选】
+     *
+     * 1. selectable —— 这张表本身是否支持选中。只有「运行」那张为 true；
+     *    「订单信息」「完成」是只读快照，永远不可选中、右键不出菜单。
+     *
+     * 2. _running —— 运行中整表锁成只读，连运行表也不许选。
+     *    理由是运行中删行会让表格与 C 侧的任务列表错位。
+     *
+     * 两者取「与」：任一为假就禁用。 */
+    final bool enabled = selectable && !_running;
+
     return TaskTable(
       key: ValueKey<String>(objectName),
       columns: columns,
@@ -985,10 +1060,12 @@ class _MainPageState extends State<MainPage> {
       onInvertSelection: () => _invertSelection(tabIndex),
       onDeleteSelected: () => _deleteSelected(tabIndex),
       onDeleteSucceeded: () => _deleteSucceeded(tabIndex),
-      // 「操作」卡片的「开始 / 结束」驱动整表只读（见 _buildActionCard）。
-      // 禁用态的提示通道一直就是接好的，这里只是把开关接上。
-      enabled: !_running,
-      onDisabledTap: _snack,
+      enabled: enabled,
+      /* 提示只在「本来能选、但正在运行所以不让选」时给。
+       *
+       * 只读表（订单 / 完成）点上去保持静默 —— 用户没有理由期待它可选，
+       * 弹一句「正在运行中」反而是误导（那时候根本没在运行）。 */
+      onDisabledTap: selectable ? _snack : null,
     );
   }
 }
