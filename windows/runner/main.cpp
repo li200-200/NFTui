@@ -8,14 +8,20 @@
 
 namespace {
 
-// 设计尺寸，必须与 lib/theme.dart 里的 kDesignWidth / kDesignHeight 一致
-// （取自 untitled.ui 的 geometry：1048x682）。
+// 设计尺寸，必须与 lib/theme.dart 里的 kAuthWidth / kAuthHeight 一致
+// （验证页按参考图逐像素校对：800x550）。
+//
+// 【为什么这里是验证页的尺寸而不是工作台的】
+// 应用启动页是登录页，用户第一眼看到的就是 800x550 的验证界面；登录成功后
+// 由 Dart 侧的 _enterWorkPage 把窗口改成工作台的 1048x682（见 lib/main.dart）。
+// 反过来（原生按 1048x682 创建、Dart 再缩到 800x550）会出现「先闪一个大窗
+// 再跳成小窗」，很扎眼。
 //
 // 注意：CreateWindow 收的是**物理像素**，而 Flutter 的 Size 是**逻辑像素**。
 // 在 125% / 150% 缩放的屏幕上如果不补偿 DPI，窗口会比设计尺寸小一圈 ——
-// 左栏 212 固定宽会显得更挤，右栏表格的列也会被压。
-constexpr int kWindowWidth = 1048;
-constexpr int kWindowHeight = 682;
+// 表单列 280 固定宽会显得更挤。
+constexpr int kWindowWidth = 800;
+constexpr int kWindowHeight = 550;
 
 // 把窗口摆到当前显示器工作区的正中。
 void CenterOnMonitor(HWND window, int width, int height) {

@@ -33,6 +33,13 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# 子包（packages/*）里的构建产物。
+#
+# 上面那条 `/build/` 带前导斜杠，只匹配**仓库根目录**的 build/；
+# packages/pigeon_core/build/ 里是 native assets 编出来的 pigeon_core.dll
+# 和测试缓存 —— 每次构建都会变，提交进来只会制造无意义的 diff。
+**/build/
+
 # Symbolication related
 app.*.symbols
 
@@ -46,3 +53,24 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# ---------------------------------------------------------------------------
+# 输入法 / 系统输入法组件的运行时文件
+#
+# 下面这些是**在项目目录里启动程序**时由输入法（以及某些 shell 组件）顺手
+# 写下的用户数据，不是本工程的任何东西：
+#   sgim_*.bin / *.config / inputstat.dat  输入法词库与状态
+#   Backup/                                上面那些文件的自动备份
+#   image.*.db                             某个程序的 SQLite 缓存
+# 它们的修改时间与「上一次启动 app_ui」完全一致，一旦提交进来，每次跑一遍
+# 程序都会产生一堆假改动，把真正的代码改动淹掉。
+# ---------------------------------------------------------------------------
+sgim_*.bin
+inputstat.dat
+/share.config
+/user.config
+# 输入法写下的那个乱码文件名（籰낃翾user.config）。用 * 前缀匹配，
+# 免得把它的字节序列抄进本文件 —— 抄错了就永远匹配不上。
+*user.config
+/image.*.db
+/Backup/

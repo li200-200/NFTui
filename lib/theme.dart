@@ -1,15 +1,23 @@
 // ---------------------------------------------------------------------------
 // 配色、字体、尺寸 —— 全工程唯一的取值来源
 //
-// 这里的每个色值 / 尺寸都是从参考工程 pigeon_app 的工作台实测值抄下来的，
-// 不是目测调的。改这里的任何一个数字，整个工作台的观感都会跟着变，
-// 所以：**不要在别处写死色值或尺寸**，加常量加在这个文件里。
+// 这里的每个色值 / 尺寸都是从参考工程实测值抄下来的，不是目测调的。
+// 改这里的任何一个数字，整个界面的观感都会跟着变，所以：
+// **不要在别处写死色值或尺寸**，加常量加在这个文件里。
 //
-// 两套命名并存是刻意的：
-//   · AppColors —— 全局色板（验证页与工作台共用的那部分也在这里）；
+// 【三套命名，各有明确归属】
+//   · AppColors  —— 全局色板。工作台与验证页取值相同的部分在这里，
+//                  其余工作台专用的也在这里（历史上它先服务于工作台）。
 //   · WorkColors —— 工作台语义别名，全部指向 AppColors，单一来源不会各自漂移。
-// 本任务只做工作台界面，但保留两层命名是为了与参考工程的文件结构对齐 ——
-// 以后要把验证页搬过来时不用再改一遍引用。
+//   · AuthColors —— 验证页（登录 / 注册 / 充值 / 协议）专用。
+//
+// 【为什么验证页要单独一套】
+// 参考工程里两套界面来源不同：
+//   · 验证页色值从登录参考图逐像素统计（**灰底输入框** #F3F3F5、浅边框 #E4E4E8、
+//     偏亮的三级文字 #9A9A9A / #B0B0B0）；
+//   · 工作台从 Win32 工具界面改色（灰面板 + **白底输入框**、深边框 #D8DBDE）。
+// 硬合成一套必然要把其中一边改掉，所以各留各的：取值相同的直接引用 AppColors，
+// 取值不同的在 AuthColors 里单独定义。
 // ---------------------------------------------------------------------------
 import 'package:flutter/material.dart';
 
@@ -21,6 +29,12 @@ class AppColors {
 
   /// 主操作绿：主按钮描边 / 文字、选中态、聚焦边框、滚动条。
   static const Color primary = Color(0xFF3AAF9F);
+
+  /// 悬停态：比主色亮一档。
+  ///
+  /// 验证页的胶囊按钮悬停用它；工作台控件用主色描边加深的方式表达悬停，
+  /// 所以 WorkColors 里没有这个别名。
+  static const Color primaryAlt = Color(0xFF41B496);
 
   /// 按下态；同时是 SnackBar 底色。
   static const Color primaryDark = Color(0xFF2E9184);
@@ -113,6 +127,52 @@ class WorkColors {
   static const Color warning = AppColors.warning;
 }
 
+/// 验证页（登录 / 注册 / 充值 / 协议）的配色。
+///
+/// 取值来自参考工程从登录参考图逐像素统计的结果，与工作台刻意不同 ——
+/// 见文件头「为什么验证页要单独一套」。
+///
+/// 与 [WorkColors] 同值的项直接引用 [AppColors]（单一来源，不会各自漂移），
+/// 只有真正不同的才在这里写死。
+class AuthColors {
+  const AuthColors._();
+
+  // ---- 与工作台同值：直接引用，不重复定义 ----
+
+  static const Color primary = AppColors.primary;
+  static const Color primaryAlt = AppColors.primaryAlt;
+  static const Color primaryDark = AppColors.primaryDark;
+  static const Color primarySoft = AppColors.primarySoft;
+  static const Color brand = AppColors.brand;
+  static const Color surface = AppColors.surface;
+  static const Color textPrimary = AppColors.textPrimary;
+  static const Color danger = AppColors.danger;
+  static const Color error = AppColors.error;
+
+  // ---- 验证页专用：与工作台取值不同 ----
+
+  /// 输入框填充。**验证页是灰底**（#F3F3F5），工作台是白底。
+  ///
+  /// 这是两套配色最主要的分歧点：参考图里输入框与页面底（#FCFCFE）只差一点点，
+  /// 靠边框而不是靠白底来区分输入区。
+  static const Color fieldFill = Color(0xFFF3F3F5);
+
+  /// 输入框聚焦时略微加深，让聚焦可感知（灰底不能靠变白来提示）。
+  static const Color fieldFillFocused = Color(0xFFEDEDF1);
+
+  /// 分割线 / 边框。比工作台的 #D8DBDE 更浅 —— 灰底输入框配深边框会很硬。
+  static const Color border = Color(0xFFE4E4E8);
+
+  /// 次要文字（输入框提示、说明文案）。
+  ///
+  /// #9A9A9A 比工作台的 #7A7A7A 更浅：验证页字号更大（13 号），
+  /// 同样深度会显得比工作台重。
+  static const Color textHint = Color(0xFF9A9A9A);
+
+  /// 辅助文字（页脚「我同意」、协议页的更新时间）。
+  static const Color textMuted = Color(0xFFB0B0B0);
+}
+
 // ---------------------------------------------------------------------------
 // 字体
 // ---------------------------------------------------------------------------
@@ -136,6 +196,44 @@ const double kFontTitle = 13;
 
 /// 提示（输入框 hint、tooltip）。
 const double kFontHint = 12;
+
+// ---------------------------------------------------------------------------
+// 验证页专用尺寸
+//
+// 与工作台是两套节奏：工作台控件 30 高（密排表格工具栏），验证页 44 高
+// （大输入框 + 胶囊按钮）。所以这一组常量单独一段，不要和工作台那组混用。
+// ---------------------------------------------------------------------------
+
+/// 验证页输入框统一高度。参考图实测 44。
+const double kFieldHeight = 44;
+
+/// 胶囊按钮的圆角：等于高度的一半，这样两端是完整的半圆。
+const double kPillRadius = 22;
+
+/// 验证页的设计窗口尺寸。
+///
+/// 原生层 windows/runner/main.cpp 里的 kWindowWidth/kWindowHeight 也是这组
+/// 数字，两处必须一致 —— 前者决定创建出来的窗口，后者是 Dart 侧的约束。
+const double kAuthWidth = 800;
+const double kAuthHeight = 550;
+
+/// 表单列宽度。参考图实测输入框 x 385-664 → 280。
+///
+/// 窗口 800 的 60% 是 480，表单列 280 在其中水平居中，两侧各留 100 的呼吸。
+const double kAuthFormWidth = 280;
+
+/// 左插画与右表单的宽度比。参考图实测 295 : 441 ≈ 40 : 60。
+const int kAuthIllustrationFlex = 40;
+const int kAuthFormFlex = 60;
+
+/// 验证页标题字号（「登录」「创建账号」「充值」）。
+const double kAuthTitleSize = 25;
+
+/// 验证页正文 / 输入框字号。
+const double kAuthBodySize = 13;
+
+/// 表单标题下的说明文字行高倍数。
+const double kAuthSubtitleHeight = 1.7;
 
 // ---------------------------------------------------------------------------
 // 尺寸

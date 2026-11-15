@@ -1,5 +1,5 @@
 name: app_ui
-description: "工作台界面：把 untitled.ui（QMainWindow）1:1 翻译成 Flutter 桌面端 UI"
+description: "工作台界面 + 验证页（登录 / 注册 / 充值），业务核心全部在 C 里"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -20,6 +20,11 @@ dependencies:
   # 这两个动作没有别的来源。
   window_manager: ^0.5.2
 
+  # 业务核心：表单校验、账号核对全部在 C 里，Dart 只画 UI。
+  # 与 snap 工程同样的两层结构（app + core），核心包自己带 native assets hook。
+  pigeon_core:
+    path: packages/pigeon_core
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -27,3 +32,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    # 验证页左栏插画（占窗口 40% 宽）。换掉这个文件即可，不用改代码。
+    - assets/images/

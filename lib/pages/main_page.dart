@@ -15,6 +15,7 @@
 // 拖好列宽之后点任意按钮、切任意 Tab，宽度都保持原样。
 // ---------------------------------------------------------------------------
 import 'package:flutter/material.dart';
+import 'package:pigeon_core/pigeon_core.dart';
 
 import 'package:app_ui/models.dart';
 import 'package:app_ui/theme.dart';
@@ -28,7 +29,18 @@ import 'package:app_ui/widgets/work_snack.dart';
 import 'package:app_ui/widgets/work_title_bar.dart';
 
 class MainPage extends StatefulWidget {
-  const MainPage({super.key});
+  const MainPage({super.key, this.loginAccount, this.onLogout});
+
+  /// 验证页登录成功后带过来的账号。
+  ///
+  /// 工作台的「登录区」自己也有账户输入框（.ui 的 lineEdit_zh），这里是把它
+  /// **预填**上，而不是锁死 —— 用户仍然可以在工作台里换另一个号。
+  final String? loginAccount;
+
+  /// 「退出登录」时回到验证页。
+  ///
+  /// 为空表示没有验证页（单独跑工作台时），此时只清空本地输入，停留在原页。
+  final VoidCallback? onLogout;
 
   @override
   State<MainPage> createState() => _MainPageState();
@@ -176,6 +188,49 @@ class _MainPageState extends State<MainPage> {
     _lineEditTz.addListener(_onSettingFieldChanged);
     // 个人中心的头像首字母与「已登录 / 未登录」也读 _lineEditZh.text，同一个坑。
     _lineEditZh.addListener(_onAccountChanged);
+
+    /* 验证页登录成功带过来的账号，预填进「登录区」的账户输入框。
+     *
+     * 在 initState 里填而不是在 build 里：build 会被调用很多次（每次 setState
+     * 都跑），在里面写 controller.text 会把用户后来的修改反复覆盖掉 ——
+     * 表现是「在工作台里改了账号，一刷新又变回登录时那个」。
+     *
+     * 放在 addListener 之后：这样赋值本身也会触发 _onAccountChanged，
+     * 个人中心面板如果正好开着能立刻显示新账号。 */
+    final String? preset = widget.loginAccount;
+    if (preset != null && preset.isNotEmpty) {
+      _lineEditZh.text = preset;
+    }
+
+    /* 进入工作台 = 登录已成：开启登录心跳。
+     *
+     * 【心跳是干什么的】
+     * C 侧起一个后台线程，每 10 分钟调一次 timeout.lg 保活（用的是登录 / 注册 /
+     * 充值响应里带回来的会话串）。不发它，服务端会把这次登录判成掉线。
+     *
+     * 【为什么在这里开、不在登录页开】
+     * 登录页只是「拿到了 Token」，用户可能马上关掉、也可能还要去注册页转一圈；
+     * 只有真正进了工作台才算「在用」。放在 initState 里，配合 dispose 里的
+     * pcHeartbeatStop，页面存活期就是心跳存活期，不会漏也不会残留。
+     *
+     * 【幂等】C 侧 pc_bsphp_heartbeat_start 已在跑时重复调用返回 PC_OK 且不叠加
+     * 线程（见其实现），所以「退出登录再登录」这种来回切不会攒出多条心跳线程。
+     *
+     * 【为什么这里要自己写一行日志】
+     * C 侧对「心跳成功」是**静默**的（见 pc_bsphp.c 的 hb_loop：PC_HB_OK 直接
+     * 进下一轮，不写任何日志）—— 这是刻意的，否则每 10 分钟一条「一切正常」
+     * 会把日志刷满。但那样一来，用户在日志里看不到「心跳到底起没起」。
+     * 所以这里在**启动那一刻**补一条，把结论和返回码都记下来：
+     *   rc=0  → 已启动（或复用已在跑的线程）
+     *   rc!=0 → 起不来，原因看返回码（PC_ERR_SERVER = CreateThread/CreateEvent 失败）
+     * 之后的心跳成败由 C 侧按需记录（只在暂时失败 / 授权失效时写）。
+     *
+     * 【返回值仍然不判】心跳起不来不该挡住用户用工作台 —— 记完日志继续。 */
+    final int hbRc = pcHeartbeatStart();
+    pcLog(hbRc == PcStatus.ok
+        ? '[心跳] 已开启（每 10 分钟一次 timeout.lg 保活；成功时不写日志，'
+            '只在失败 / 授权失效时记录）'
+        : '[心跳] 启动失败 rc=$hbRc —— 服务端可能把本次登录判成掉线');
   }
 
   void _onSettingFieldChanged() {
@@ -192,6 +247,22 @@ class _MainPageState extends State<MainPage> {
 
   @override
   void dispose() {
+    /* 离开工作台（退出登录 / 关窗）：停掉心跳线程。
+     *
+     * 协作式停止：置标志 + 唤醒等待中的线程，本调用立即返回，不等线程 join
+     * （它可能正卡在一次最长 25s 的网络请求里）。需要确认真的收干净时用
+     * pcHeartbeatIsRunning 轮询 —— 关闭窗口那条路径由 main.dart 的
+     * onWindowClose 统一处理，那里不轮询是因为紧接着就 pcCoreShutdown 了。
+     *
+     * 放在最前面：后面那串 dispose 只是释放 Dart 侧对象，与心跳无关；
+     * 先停线程可以尽早停止产生新的日志写入。
+     *
+     * 【日志写在 stop 之后】与 initState 里那条「已开启」成对，方便在运行日志里
+     * 按时间对齐「什么时候进的工作台、什么时候退的」。注意 stop 是协作式的，
+     * 这条日志只表示「已发出停止请求」，线程真正退出可能还要几百毫秒。 */
+    pcHeartbeatStop();
+    pcLog('[心跳] 已请求停止（离开工作台）');
+
     // 先摘监听再释放：dispose 期间 controller 还会发一次通知，
     // 那时如果回调还在，就会对已 unmount 的 State 调 setState。
     _lineEditShqz.removeListener(_onSettingFieldChanged);
@@ -539,6 +610,9 @@ class _MainPageState extends State<MainPage> {
   }
 
   /// 「退出登录」：清掉账号与密码，回到未登录态。
+  ///
+  /// 有验证页时（[MainPage.onLogout] 非空）交回上层切回登录页 —— 否则只是
+  /// 清空了输入框，用户还停在工作台里，看起来像「退出没生效」。
   void _logout() {
     setState(() {
       _lineEditZh.clear();
@@ -546,6 +620,11 @@ class _MainPageState extends State<MainPage> {
       _lineEditZfmm.clear();
       _drawer = null;
     });
+    final VoidCallback? back = widget.onLogout;
+    if (back != null) {
+      back();
+      return;
+    }
     _snack('已退出登录');
   }
 

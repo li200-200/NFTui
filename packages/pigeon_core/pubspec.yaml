@@ -1,0 +1,36 @@
+name: pigeon_core
+description: "C 核心 —— 验证页（登录 / 注册 / 充值）与后续业务逻辑全部在 C 里，Dart 只画 UI"
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  # 这里的 flutter 依赖只为「测试运行器」：核心包本身不含任何 UI 代码。
+  #
+  # 原因：native assets 的 C 编译器配置是由 Flutter 工具链注入的
+  # （flutter_tools 解析出 cl.exe / lib.exe / link.exe 与 vcvars64.bat，
+  #   通过 CCompilerConfig 交给 hook）。裸 `dart test` 没有这个注入，
+  #   native_toolchain_c 会退回自己探 MSVC —— 探不到就报「No compiler configured」。
+  # 所以本包的测试也统一用 `flutter test` 跑。
+  flutter:
+    sdk: flutter
+
+  # 下面三个是 native assets 的必需品，必须写在 dependencies 而不是
+  # dev_dependencies：hook 是在「依赖方」的构建里被执行的，写进
+  # dev_dependencies 不会被带进依赖图，hook 也就永远不会跑。
+  #
+  # hooks：hook/build.dart 的入口 build()、BuildInput / BuildOutputBuilder
+  hooks: any
+  # code_assets：CodeAsset 类型
+  code_assets: any
+  # native_toolchain_c：CLibrary，调 cl.exe 编译 C 源码
+  native_toolchain_c: any
+  # ffi：Utf8 字符串分配与释放（dart:ffi 只提供裸指针，工具在这）
+  ffi: any
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
